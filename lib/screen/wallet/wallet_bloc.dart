@@ -1,0 +1,207 @@
+// Path: lib/screen/wallet/wallet_bloc.dart
+
+import 'package:flutter/material.dart';
+import 'package:connectivity_plus/connectivity_plus.dart' as cp; // Alias connectivity_plus
+import 'package:rxdart/rxdart.dart'; // <-- ADD THIS IMPORT
+
+import '../../network/api_response.dart';
+import '../../utils/bloc.dart';
+import '../../utils/common_util.dart';
+import '../payment/payment_screen_webview.dart'; // Ensure this exists
+import '../walletTransfer/wallet_transfer.dart';
+import 'my_wallet_repo.dart';
+import 'wallet.dart';
+import 'walletTransaction/wallet_transaction.dart';
+import 'wallet_dl.dart';
+
+class WalletBloc implements Bloc { // Changed from 'extends Bloc'
+  final MyWalletRepo _myWalletRepo = MyWalletRepo();
+  BuildContext context;
+
+  // Validator validator;
+  bool setError = true; // Renamed from _setError for clarity if needed publicly
+  State<Wallet> state;
+
+  WalletBloc(this.context, this.state) {
+    getWalletAmount();
+  }
+
+  TextEditingController addAmountTEC = TextEditingController();
+  final formKey = GlobalKey<FormState>();
+
+  final _walletAmountController = BehaviorSubject<double>.seeded(0.0);
+  final _subjectGetBalance = BehaviorSubject<ApiResponse<WalletBalancePojo>>();
+  final _subjectAddAmount = BehaviorSubject<ApiResponse<WalletBalancePojo>>();
+
+  BehaviorSubject<ApiResponse<WalletBalancePojo>> get subjectGetBalance => _subjectGetBalance;
+
+  BehaviorSubject<ApiResponse<WalletBalancePojo>> get subjectAddAmount => _subjectAddAmount;
+
+  Stream<double> get walletAmount => _walletAmountController.stream;
+
+  // Use .sink.add for adding values
+  Function(double) get changeWalletAmount => _walletAmountController.sink.add;
+
+  openWalletTransactionScreen() {
+    // Use valueOrNull for safety, defaulting to 0 if stream hasn't emitted yet
+    openScreen(context, WalletTransaction(walletAmount: _walletAmountController.valueOrNull ?? 0));
+  }
+
+  openWalletTransfer() {
+    // Use .value for latest value if stream has emitted, otherwise handle null/default
+    final currentAmount = _walletAmountController.valueOrNull ?? 0.0;
+    openScreenWithResult(
+        context,
+        WalletTransfer(
+          walletAmount: currentAmount,
+        )).then((returnedAmount) {
+      // Check if a new amount was returned (e.g., after transfer)
+      if (returnedAmount != null && returnedAmount is double) {
+         // Update the wallet amount displayed on this screen
+         if (!_walletAmountController.isClosed) {
+            _walletAmountController.sink.add(returnedAmount);
+         }
+        // Optionally, call getWalletAmount() again to refresh from server
+        // getWalletAmount();
+      } else if (returnedAmount == true){
+         // Fallback if the screen just returned true for success
+         getWalletAmount();
+      }
+    });
+  }
+
+  getWalletAmount() async {
+    if (_subjectGetBalance.isClosed) return;
+    var connectivityResult = await cp.Connectivity().checkConnectivity();
+    if (!connectivityResult.contains(cp.ConnectivityResult.none)) {
+      _subjectGetBalance.sink.add(ApiResponse.loading());
+      try {
+        var response = WalletBalancePojo.fromJson(await _myWalletRepo.getWalletBalance());
+        if (!state.mounted) return;
+        String message = response.message ?? languages.apiErrorUnexpectedErrorMsg;
+        if (isApiStatus(context, response.status ?? 0, message, false)) { // Pass false for isLogout
+          double balance = getDoubleFromDynamic(response.walletBalance ?? "0");
+          if (!_walletAmountController.isClosed) {
+            _walletAmountController.sink.add(balance);
+          }
+          _subjectGetBalance.sink.add(ApiResponse.completed(response));
+        } else {
+          // isApiStatus might handle UI, just update stream state
+          _subjectGetBalance.sink.add(ApiResponse.error(message));
+          // openSimpleSnackbar(message); // Might be redundant
+        }
+      } catch (e) {
+        if (!state.mounted) return;
+        String errorMessage = e is Exception ? e.toString() : languages.apiErrorUnexpectedErrorMsg;
+        openSimpleSnackbar(errorMessage);
+        _subjectGetBalance.sink.add(ApiResponse.error(errorMessage));
+         logd("getWalletAmount", "Error: $e");
+      }
+    } else {
+      if (!state.mounted) return;
+      openSimpleSnackbar(languages.noInternet);
+      _subjectGetBalance.sink.add(ApiResponse.error(languages.noInternet));
+    }
+  }
+
+  openSelectPaymentScreen() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if(addAmountTEC.text.trim().isNotEmpty) {
+      addAmountToWallet(getDoubleFromDynamic(addAmountTEC.text.trim()), paymentTypeVipps); // Defaulting to Vipps (3) based on old code structure
+    } else {
+       openSimpleSnackbar(languages.pleaseEnterAmount);
+    }
+    /* // Old logic if you had a separate payment selection screen
+       openScreenWithResult(
+        context,
+        AddMoneyToWallet(
+          walletAmount: getDoubleFromDynamic(addAmountTEC.text.trim()),
+        )).then((value) {
+      if (value != null) {
+        openSimpleSnackbar(languages.walletAddSuccessful);
+        setError = false;
+        addAmountTEC.clear();
+        getWalletAmount();
+      }
+    });*/
+  }
+
+  addAmountToWallet(double amount, int paymentType) async {
+     if (_subjectAddAmount.isClosed) return;
+    var connectivityResult = await cp.Connectivity().checkConnectivity();
+    if (!connectivityResult.contains(cp.ConnectivityResult.none)) {
+      _subjectAddAmount.sink.add(ApiResponse.loading());
+      try {
+        var response = WalletBalancePojo.fromJson(await _myWalletRepo.addWalletBalance(amount, paymentType));
+
+        if (!state.mounted) return;
+
+        String message = response.message ?? languages.apiErrorUnexpectedErrorMsg;
+        // Pass false for isLogout
+        if (isApiStatus(context, response.status ?? 0, message, false)) {
+          _subjectAddAmount.sink.add(ApiResponse.completed(response)); // Update stream early
+
+          // Handle payment redirection if URL is provided
+          if (response.redirectUrl.isNotEmpty) {
+            // Navigate to WebView or external browser
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PaymentScreenWebView(
+                  redirectUrl: response.redirectUrl,
+                  successUrl: response.successUrl,
+                  failedUrl: response.failedUrl,
+                ),
+              ),
+            ).then((paymentSuccess) {
+               // Handle result from WebView
+              if (paymentSuccess == true) {
+                  openSimpleSnackbar(languages.walletAddSuccessful);
+                  setError = false; // Reset error state on success
+                  addAmountTEC.clear();
+                  getWalletAmount(); // Refresh wallet balance
+              } else {
+                  openSimpleSnackbar(languages.transactionFailed);
+                 // Keep amount in field? setError = true;
+              }
+            });
+          } else {
+             // If no redirect URL, maybe payment was processed directly?
+             openSimpleSnackbar(languages.walletAddSuccessful); // Assume success if API status was 1
+             setError = false;
+             addAmountTEC.clear();
+             getWalletAmount();
+          }
+
+        } else {
+          openSimpleSnackbar(message);
+          _subjectAddAmount.sink.add(ApiResponse.error(message));
+        }
+      } catch (e) {
+        if (!state.mounted) return;
+        String errorMessage = e is Exception ? e.toString() : languages.apiErrorUnexpectedErrorMsg;
+        openSimpleSnackbar(errorMessage);
+        _subjectAddAmount.sink.add(ApiResponse.error(errorMessage));
+        logd("addAmountToWallet", "Error: $e");
+      }
+    } else {
+      if (!state.mounted) return;
+      openSimpleSnackbar(languages.noInternet);
+       _subjectAddAmount.sink.add(ApiResponse.error(languages.noInternet));
+    }
+  }
+
+  // Helper method to safely get the current wallet amount
+  double currentWalletAmount() {
+    return _walletAmountController.valueOrNull ?? 0.0;
+  }
+
+  @override
+  void dispose() {
+    addAmountTEC.dispose();
+    _walletAmountController.close();
+    _subjectGetBalance.close();
+    _subjectAddAmount.close();
+    // No super.dispose() needed
+  }
+}

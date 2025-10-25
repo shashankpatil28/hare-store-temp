@@ -1,0 +1,371 @@
+// Path: lib/screen/orderDetailScreen/order_detail_bloc.dart
+
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart' as cp; // Alias connectivity_plus
+import 'package:flutter/foundation.dart'; // For debugPrint
+import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:sunmi_printer_plus/sunmi_printer_plus.dart'; // Updated import
+import 'package:rxdart/rxdart.dart'; // <-- ADD THIS IMPORT
+
+import '../../network/api_response.dart';
+import '../../network/base_dl.dart';
+import '../../utils/bloc.dart';
+import '../../utils/common_util.dart';
+import '../homeScreen/home_dl.dart';
+import 'order_detail_dl.dart';
+import 'order_detail_screen.dart';
+import 'order_details_repo.dart';
+
+class OrderDetailBloc implements Bloc {
+  String tag = "OrderDetailBloc>>>";
+  final OrderDetailsRepo _repo = OrderDetailsRepo();
+  int orderId;
+  bool playRing;
+  BuildContext context;
+  Timer? timer;
+  Function(HomeResponse)? updateList;
+  bool printBinded = false;
+
+  // AudioCache audioCache = AudioCache();
+  final _player = AudioPlayer();
+  final orderDetailSubject =
+      BehaviorSubject<ApiResponse<OrderDetailResponse>>();
+  final _keyValueSubject = BehaviorSubject<List<KeyValueModel>>();
+  final statusSubject = BehaviorSubject<ApiResponse<HomeResponse>>();
+  final BehaviorSubject<bool> _printSubjectValue =
+      BehaviorSubject.seeded(false);
+  final BehaviorSubject<bool> _printerBusySubjectValue =
+      BehaviorSubject.seeded(false);
+
+  BehaviorSubject<bool> get printerAvailable => _printSubjectValue;
+
+  BehaviorSubject<bool> get printingBusy => _printerBusySubjectValue;
+  State<OrderDetailScreen> state;
+
+  OrderDetailBloc(this.context, this.state, this.orderId,
+      {this.updateList, this.playRing = false}) {
+    getOrderDetail(setSubject: true);
+    timer = Timer.periodic(const Duration(seconds: 15),
+        (Timer t) => getOrderDetail(setSubject: false));
+    // myFirebaseService?.flutterLocalNotificationsPlugin.cancelAll();
+    setPrefNotificationData(null);
+    _bindingPrinter();
+    _init();
+  }
+
+  Future<void> _init() async {
+    _player.playbackEventStream.listen((event) {},
+        onError: (Object e, StackTrace stackTrace) {
+      logd(tag, 'A stream error occurred: $e');
+    });
+    // Try to load audio from a source and catch any errors.
+    try {
+      await _player.setAsset('assets/audio/sring.mp3');
+      await _player.setLoopMode(LoopMode.all);
+    } catch (e) {
+      logd(tag, "Error loading audio source: $e");
+    }
+  }
+
+  Stream<List<KeyValueModel>> get keyValueSubject => _keyValueSubject.stream;
+
+  void setInvoice(OrderDetailResponse data) {
+    List<KeyValueModel> listOfInvoice = [];
+    setKeyValuePair(listOfInvoice, false, false, true, languages.itemTotal,
+        data.orderItemTotal.toString());
+    setKeyValuePair(listOfInvoice, false, false, true,
+        languages.deliveryCharges, data.orderDeliveryCost.toString());
+    setKeyValuePair(listOfInvoice, false, false, true,
+        languages.packagingCharge, data.orderPackagingCost.toString());
+    setKeyValuePair(listOfInvoice, false, false, true, languages.discount,
+        data.orderDiscountCost.toString());
+    setKeyValuePair(listOfInvoice, false, false, true, languages.referDiscount,
+        data.referDiscount.toString());
+    setKeyValuePair(listOfInvoice, false, false, true, data.promocodeName,
+        data.promocodeDiscount.toString());
+    setKeyValuePair(listOfInvoice, false, false, true, languages.tax,
+        data.orderTax.toString());
+    setKeyValuePair(listOfInvoice, false, false, true, languages.tip,
+        data.referDiscount.toString());
+    setKeyValuePair(listOfInvoice, true, true, true, languages.total,
+        data.orderTotalPay.toString());
+    setKeyValuePair(listOfInvoice, false, false, false, languages.paymentType,
+        getPaymentType(data.paymentType));
+    if (data.orderStatus == 9) {
+      setKeyValuePair(
+          listOfInvoice,
+          false,
+          false,
+          false,
+          languages.paymentSettlement,
+          getPaymentSettlement(data.storePaySettleStatus));
+    }
+    _keyValueSubject.add(listOfInvoice);
+  }
+
+  getOrderDetail(
+      {bool setSubject = true,
+      BehaviorSubject<ApiResponse<OrderDetailResponse>>? subject}) async {
+    if (orderDetailSubject.isClosed) {
+      return;
+    }
+
+    setSubject
+        ? orderDetailSubject.add(ApiResponse.loading())
+        : subject?.add(ApiResponse.loading());
+
+    var connectivityResult = await cp.Connectivity().checkConnectivity(); // Use alias
+    if (!connectivityResult.contains(cp.ConnectivityResult.none)) { // Use alias
+      try {
+        OrderDetailResponse response = OrderDetailResponse.fromJson(
+            await _repo.getOrderDetail(orderId: orderId));
+        if (!state.mounted) return;
+        var apiMsg = getApiMsg(context, response.message, response.messageCode);
+        if (isApiStatus(context, response.status, apiMsg)) {
+          if (response.orderStatus != 1) {
+            playRing = false;
+            _player.stop();
+          }
+          if (response.orderStatus == 1 && !_player.playing && (playRing)) {
+            _player.play();
+          }
+          checkPrintAvailable(response);
+          setInvoice(response);
+          orderDetailSubject.add(ApiResponse.completed(response));
+          subject?.add(ApiResponse.completed(response));
+        } else {
+          orderDetailSubject.add(ApiResponse.error(response.message, response));
+          subject?.add(ApiResponse.error());
+          if (response.status != 3) openSimpleSnackbar(apiMsg);
+        }
+      } catch (e) {
+        if (!state.mounted) return;
+        orderDetailSubject.add(ApiResponse.error(e.toString()));
+        subject?.add(ApiResponse.error(e.toString()));
+        timer?.cancel();
+      }
+    } else {
+      if (!state.mounted) return;
+      openSimpleSnackbar(languages.noInternet);
+    }
+  }
+
+  updateOrderStatus(int orderId, int orderStatus, String reason,
+      {BehaviorSubject<ApiResponse<HomeResponse>>? subject}) async {
+    var connectivityResult = await cp.Connectivity().checkConnectivity(); // Use alias
+    if (!connectivityResult.contains(cp.ConnectivityResult.none)) { // Use alias
+      subject?.add(ApiResponse.loading());
+
+      try {
+        HomeResponse response = HomeResponse.fromJson(
+          await _repo.updateOrderStatus(
+              orderId: orderId,
+              updateStatus: orderStatus,
+              rejectedReason: reason),
+        );
+        if (!state.mounted) return;
+
+        var apiMsg = getApiMsg(context, response.message, response.messageCode);
+
+        if (isApiStatus(context, response.status, apiMsg)) {
+          subject?.add(ApiResponse.completed(response));
+          if (updateList != null) updateList!(response);
+          getOrderDetail(setSubject: false);
+        } else {
+          subject?.add(ApiResponse.error());
+          if (response.status != 3) openSimpleSnackbar(apiMsg);
+        }
+      } catch (e) {
+        if (!state.mounted) return;
+        subject?.add(ApiResponse.error(e.toString()));
+        openSimpleSnackbar(e.toString());
+        logd(tag, e.toString());
+      }
+    } else {
+      if (!state.mounted) return;
+      openSimpleSnackbar(languages.noInternet);
+    }
+  }
+
+  myLog(String message) {
+    logd(tag, "$runtimeType ==> $message");
+  }
+
+  _bindingPrinter() async {
+    printBinded = await SunmiPrinter.bindingPrinter() ?? false;
+  }
+
+  checkPrintAvailable(OrderDetailResponse orderDetailsPojo) {
+    if (orderDetailsPojo.orderStatus >= 5 && printBinded) {
+      _printSubjectValue.sink.add(true);
+    } else {
+      _printSubjectValue.sink.add(false);
+    }
+  }
+
+  printInvoice() async {
+    OrderDetailResponse? orderDetailsPojo =
+        orderDetailSubject.valueOrNull?.data;
+    if (orderDetailsPojo == null) {
+      return;
+    }
+
+    try {
+      _printerBusySubjectValue.add(true);
+      await SunmiPrinter.initPrinter();
+      await SunmiPrinter.startTransactionPrint(true);
+      await SunmiPrinter.line();
+
+      //HEADER
+      await SunmiPrinter.lineWrap(1);
+      await SunmiPrinter.printText(
+        languages.appName.toUpperCase(),
+        style: SunmiTextStyle(fontSize: SunmiFontSize.LG, bold: true, align: SunmiPrintAlign.CENTER),
+      );
+      await SunmiPrinter.lineWrap(1);
+      await SunmiPrinter.printText(
+          '${languages.bookingID}: #${orderDetailsPojo.orderNo}',
+          style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: true, align: SunmiPrintAlign.LEFT));
+      await SunmiPrinter.printText(
+          '${languages.orderTime}: ${getTime(orderDetailsPojo.orderDateTime, format: "hh:mm a, dd-MM-yyyy")}',
+          style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: true, align: SunmiPrintAlign.LEFT));
+      
+      //CUSTOMER AND DRIVER DETAIL
+      await SunmiPrinter.line();
+
+      if (orderDetailsPojo.userTakenType != 2) {
+        // print header row (Customer / Driver) with bold + MD style on columns
+        await SunmiPrinter.printRow(cols: [
+          SunmiColumn(text: languages.customer, width: 15, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: true)),
+          SunmiColumn(text: ' ', width: 1, align: SunmiPrintAlign.LEFT),
+          SunmiColumn(text: languages.driver, width: 15, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: true)),
+        ]);
+        // print data row (names) with normal MD style
+        await SunmiPrinter.printRow(cols: [
+          SunmiColumn(text: orderDetailsPojo.customerName, width: 15, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+          SunmiColumn(text: ' ', width: 1, align: SunmiPrintAlign.LEFT),
+          SunmiColumn(text: orderDetailsPojo.deliveryPersonName, width: 15, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+        ]);
+      } else {
+        await SunmiPrinter.printText(
+          languages.customer,
+          style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: true, align: SunmiPrintAlign.LEFT),
+        );
+        await SunmiPrinter.printText(
+          orderDetailsPojo.customerName,
+          style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false, align: SunmiPrintAlign.LEFT),
+        );
+      }
+      await SunmiPrinter.lineWrap(1);
+      if (orderDetailsPojo.userTakenType != 2) {
+        await SunmiPrinter.printText(orderDetailsPojo.deliveryAddress, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false, align: SunmiPrintAlign.LEFT));
+      } else {
+        await SunmiPrinter.printText(languages.takeaway, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false, align: SunmiPrintAlign.CENTER));
+      }
+
+      if ((orderDetailsPojo.additionalRemark).isNotEmpty) {
+        await SunmiPrinter.printText(languages.instruction, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: true, align: SunmiPrintAlign.LEFT));
+        await SunmiPrinter.printText(orderDetailsPojo.additionalRemark, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false, align: SunmiPrintAlign.LEFT));
+      }
+
+      //ORDER ITEM DETAIL
+      await SunmiPrinter.line();
+      // print header row for items (bold MD)
+      await SunmiPrinter.printRow(cols: [
+        SunmiColumn(text: languages.navProducts, width: 10, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: true)),
+        SunmiColumn(text: languages.price, width: 10, align: SunmiPrintAlign.CENTER, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: true)),
+        SunmiColumn(text: languages.total, width: 10, align: SunmiPrintAlign.RIGHT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: true)),
+      ]);
+      // print items with MD style (non-bold)
+      for (var item in orderDetailsPojo.itemList) {
+        await SunmiPrinter.printRow(cols: [
+          SunmiColumn(text: item.productName, width: 10, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+          SunmiColumn(text: ' ', width: 1, align: SunmiPrintAlign.LEFT),
+          SunmiColumn(text: '${item.quantity}x${getAmountWithCurrency(item.priceForOne)}', width: 10, align: SunmiPrintAlign.CENTER, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+          SunmiColumn(text: ' ', width: 1, align: SunmiPrintAlign.LEFT),
+          SunmiColumn(text: getAmountWithCurrency(item.priceForOne), width: 8, align: SunmiPrintAlign.RIGHT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+        ]);
+      }
+
+      //ORDER CHARGE DETAIL
+      await SunmiPrinter.line();
+      await SunmiPrinter.printRow(cols: [
+        SunmiColumn(text: languages.itemTotal, width: 20, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+        SunmiColumn(text: getAmountWithCurrency(orderDetailsPojo.orderItemTotal), width: 11, align: SunmiPrintAlign.RIGHT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+      ]);
+      if (getDouble(orderDetailsPojo.orderDeliveryCost) > 0) {
+        await SunmiPrinter.printRow(cols: [
+          SunmiColumn(text: languages.deliveryCharges, width: 20, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+          SunmiColumn(text: getAmountWithCurrency(orderDetailsPojo.orderDeliveryCost), width: 11, align: SunmiPrintAlign.RIGHT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+        ]);
+      }
+      if (getDouble(orderDetailsPojo.orderPackagingCost) > 0) {
+        await SunmiPrinter.printRow(cols: [
+          SunmiColumn(text: languages.packagingCharge, width: 20, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+          SunmiColumn(text: getAmountWithCurrency(orderDetailsPojo.orderPackagingCost), width: 11, align: SunmiPrintAlign.RIGHT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+        ]);
+      }
+
+      if (getDouble(orderDetailsPojo.orderTax) > 0) {
+        await SunmiPrinter.printRow(cols: [
+          SunmiColumn(text: languages.tax, width: 20, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+          SunmiColumn(text: getAmountWithCurrency(orderDetailsPojo.orderTax), width: 11, align: SunmiPrintAlign.RIGHT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+        ]);
+      }
+
+      if (getDouble(orderDetailsPojo.promocodeDiscount) > 0) {
+        await SunmiPrinter.printRow(cols: [
+          SunmiColumn(text: orderDetailsPojo.promocodeName, width: 20, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+          SunmiColumn(text: getAmountWithCurrency(orderDetailsPojo.promocodeDiscount), width: 11, align: SunmiPrintAlign.RIGHT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+        ]);
+      }
+      if (getDouble(orderDetailsPojo.orderDiscountCost) > 0) {
+        await SunmiPrinter.printRow(cols: [
+          SunmiColumn(text: languages.discount, width: 20, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+          SunmiColumn(text: getAmountWithCurrency(orderDetailsPojo.orderDiscountCost), width: 11, align: SunmiPrintAlign.RIGHT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+        ]);
+      }
+
+      await SunmiPrinter.line();
+      // Total row bold MD
+      await SunmiPrinter.printRow(cols: [
+        SunmiColumn(text: languages.total, width: 20, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: true)),
+        SunmiColumn(text: getAmountWithCurrency(orderDetailsPojo.orderTotalPay), width: 10, align: SunmiPrintAlign.RIGHT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: true)),
+      ]);
+      await SunmiPrinter.printRow(cols: [
+        SunmiColumn(text: languages.paymentType, width: 20, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+        SunmiColumn(text: getPaymentType(orderDetailsPojo.paymentType), width: 11, align: SunmiPrintAlign.RIGHT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+      ]);
+      await SunmiPrinter.printRow(cols: [
+        SunmiColumn(text: languages.paymentSettlement, width: 20, align: SunmiPrintAlign.LEFT, style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false)),
+        SunmiColumn(
+          text: orderDetailsPojo.storePaySettleStatus == 1
+              ? languages.settle
+              : languages.unSettle,
+          width: 11,
+          align: SunmiPrintAlign.RIGHT,
+          style: SunmiTextStyle(fontSize: SunmiFontSize.MD, bold: false),
+        ),
+      ]);
+      await SunmiPrinter.lineWrap(2);
+      await SunmiPrinter.printText(languages.thankYou, style: SunmiTextStyle(align: SunmiPrintAlign.CENTER, bold: true));
+      await SunmiPrinter.lineWrap(2);
+      await SunmiPrinter.exitTransactionPrint(true);
+      _printerBusySubjectValue.add(false);
+    } catch (e) {
+      debugPrint("printer error : ${e.toString()}");
+      _printerBusySubjectValue.add(false);
+    }
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    _player.dispose();
+    _keyValueSubject.close();
+    orderDetailSubject.close();
+    statusSubject.close();
+  }
+}

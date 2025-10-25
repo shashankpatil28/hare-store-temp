@@ -1,0 +1,128 @@
+// Path: lib/screen/wallet/walletTransaction/wallet_transaction_bloc.dart
+
+import 'package:flutter/material.dart';
+import 'package:connectivity_plus/connectivity_plus.dart' as cp; // Alias connectivity_plus
+import 'package:rxdart/rxdart.dart'; // <-- ADD THIS IMPORT
+
+import '../../../network/api_response.dart';
+import '../../../utils/bloc.dart';
+import '../../../utils/common_util.dart';
+import '../my_wallet_repo.dart';
+import '../wallet_dl.dart';
+import 'wallet_transaction.dart';
+import 'wallet_transaction_repo.dart';
+
+class WalletTransactionBloc implements Bloc { // Changed from 'extends Bloc'
+  BuildContext context;
+  double? _initialWalletAmount; // Store initial amount passed
+  final MyWalletRepo _myWalletRepo = MyWalletRepo();
+  final WalletTransactionRepo _walletTransactionRepo = WalletTransactionRepo();
+  State<WalletTransaction> state;
+
+  WalletTransactionBloc(this.context, this._initialWalletAmount, this.state) {
+    // If an initial amount was passed, use it immediately
+    if (_initialWalletAmount != null) {
+      changeWalletAmount(_initialWalletAmount!);
+    } else {
+      // Otherwise, fetch it from the server
+      getWalletAmount();
+    }
+    // Always fetch transactions
+    getTransactionList();
+  }
+
+  final _walletAmountController = BehaviorSubject<double>.seeded(0.0);
+  final _subject = BehaviorSubject<ApiResponse<WalletTransactionPojo>>();
+  final _subjectGetBalance = BehaviorSubject<ApiResponse<WalletBalancePojo>>();
+
+  BehaviorSubject<ApiResponse<WalletTransactionPojo>> get subject => _subject;
+
+  BehaviorSubject<ApiResponse<WalletBalancePojo>> get subjectGetBalance => _subjectGetBalance;
+
+  Stream<double> get walletAmountStream => _walletAmountController.stream;
+
+  // Use .sink.add for adding values
+  Function(double) get changeWalletAmount => _walletAmountController.sink.add;
+
+  getTransactionList() async {
+    if (_subject.isClosed) return;
+    var connectivityResult = await cp.Connectivity().checkConnectivity(); // Use alias
+    if (!connectivityResult.contains(cp.ConnectivityResult.none)) { // Use alias
+      _subject.sink.add(ApiResponse.loading());
+      try {
+        var response = WalletTransactionPojo.fromJson(await _walletTransactionRepo.getWalletTransactions());
+        if(!state.mounted) return; // Check mounted after await
+        String message = response.message ?? languages.apiErrorUnexpectedErrorMsg;
+        // Pass false for isLogout
+        if (isApiStatus(context, response.status ?? 0, message, false)) {
+          if (response.transactions != null && response.transactions!.isNotEmpty) {
+            _subject.sink.add(ApiResponse.completed(response));
+          } else {
+             // Use a specific message for no transactions found
+            _subject.sink.add(ApiResponse.error(languages.emptyData));
+          }
+        } else {
+          // isApiStatus might handle UI, update stream state
+          _subject.sink.add(ApiResponse.error(message));
+          // openSimpleSnackbar(message); // Might be redundant
+        }
+      } catch (e) {
+        if(!state.mounted) return;
+        String errorMessage = e is Exception ? e.toString() : languages.apiErrorUnexpectedErrorMsg;
+        logd("getTransactionList", "Error: $e");
+        _subject.sink.add(ApiResponse.error(errorMessage));
+         openSimpleSnackbar(errorMessage); // Show error to user
+      }
+    } else { // No internet
+      if(!state.mounted) return;
+      _subject.sink.add(ApiResponse.error(languages.noInternet));
+      openSimpleSnackbar(languages.noInternet);
+    }
+  }
+
+  // Only call this if _initialWalletAmount was null
+  getWalletAmount() async {
+     if (_subjectGetBalance.isClosed || _walletAmountController.isClosed) return;
+
+    var connectivityResult = await cp.Connectivity().checkConnectivity(); // Use alias
+    if (!connectivityResult.contains(cp.ConnectivityResult.none)) { // Use alias
+      _subjectGetBalance.sink.add(ApiResponse.loading());
+      try {
+        var response = WalletBalancePojo.fromJson(await _myWalletRepo.getWalletBalance());
+        if(!state.mounted) return; // Check mounted after await
+
+        String message = response.message ?? languages.apiErrorUnexpectedErrorMsg;
+        // Pass false for isLogout
+        if (isApiStatus(context, response.status ?? 0, message, false)) {
+          double balance = getDoubleFromDynamic(response.walletBalance ?? "0");
+          if (!_walletAmountController.isClosed) {
+             _walletAmountController.sink.add(balance);
+          }
+          _subjectGetBalance.sink.add(ApiResponse.completed(response));
+        } else {
+          // isApiStatus might handle UI, update stream state
+          _subjectGetBalance.sink.add(ApiResponse.error(message));
+          // openSimpleSnackbar(message); // Might be redundant
+        }
+      } catch (e) {
+        if(!state.mounted) return;
+        String errorMessage = e is Exception ? e.toString() : languages.apiErrorUnexpectedErrorMsg;
+        openSimpleSnackbar(errorMessage);
+        _subjectGetBalance.sink.add(ApiResponse.error(errorMessage));
+        logd("getWalletAmount", "Error: $e");
+      }
+    } else { // No internet
+      if(!state.mounted) return;
+      openSimpleSnackbar(languages.noInternet);
+      _subjectGetBalance.sink.add(ApiResponse.error(languages.noInternet)); // Update stream state
+    }
+  }
+
+  @override
+  void dispose() {
+    _subject.close();
+    _subjectGetBalance.close();
+    _walletAmountController.close();
+     // No super.dispose needed
+  }
+}

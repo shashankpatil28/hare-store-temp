@@ -1,0 +1,227 @@
+// Path: lib/screen/walletTransfer/wallet_transfer_bloc.dart
+
+import 'package:flutter/material.dart';
+import 'package:connectivity_plus/connectivity_plus.dart' as cp; // Alias connectivity_plus
+import 'package:rxdart/rxdart.dart'; // <-- ADD THIS IMPORT
+
+import '../../commonView/my_widgets.dart';
+import '../../network/api_response.dart';
+import '../../network/base_dl.dart';
+import '../../utils/bloc.dart';
+import '../../utils/common_util.dart';
+import 'wallet_transfer.dart';
+import 'wallet_transfer_dl.dart';
+import 'wallet_transfer_repo.dart';
+
+class WalletTransferBloc implements Bloc { // Changed from 'extends Bloc'
+  var searchUser = BehaviorSubject<ApiResponse<UserSearchModel>?>();
+  var transferToWallet = BehaviorSubject<ApiResponse<BaseModel>>();
+  double walletAmount = 0;
+  BuildContext context;
+  WalletTransferRepo walletTransferRepo = WalletTransferRepo();
+  TextEditingController textEditingController = TextEditingController();
+
+  TextEditingController textBeneficialController = TextEditingController();
+  TextEditingController textNumberController = TextEditingController();
+  TextEditingController textEmailController = TextEditingController();
+  TextEditingController textAmountController = TextEditingController();
+  TransferUserList? transferUserList;
+
+  final formKey = GlobalKey<FormState>();
+  State<WalletTransfer> state;
+
+  WalletTransferBloc(this.context, this.walletAmount, this.state);
+
+  resetUser() {
+    textEditingController.text = "";
+    transferUserList = null;
+    textBeneficialController.text = "";
+    textNumberController.text = "";
+    textEmailController.text = "";
+    textAmountController.text = "";
+    // Optionally clear the amount error state if using Form validation feedback
+    // formKey.currentState?.reset();
+    // Or manually clear stream/subject errors if needed
+  }
+
+  searchUsers(String search) async {
+     if (searchUser.isClosed) return; // Prevent adding to closed stream
+    var connectivityResult = await cp.Connectivity().checkConnectivity(); // Use alias
+    if (!connectivityResult.contains(cp.ConnectivityResult.none)) { // Use alias
+      searchUser.add(ApiResponse.loading());
+      try {
+        var response = UserSearchModel.fromJson(await walletTransferRepo.findUser(search));
+        if (!state.mounted) return;
+        String message = response.message ?? languages.unknownError; // Use default error
+        // Pass false for isLogout as we handle UI here
+        if (isApiStatus(context, response.status ?? 0, message, false)) {
+          searchUser.add(ApiResponse.completed(response));
+        } else {
+          // If isApiStatus handles navigation/dialogs, this error might be redundant
+          // openSimpleSnackbar(message);
+          searchUser.add(ApiResponse.error(message));
+        }
+      } catch (e) {
+        if (!state.mounted) return;
+         String errorMessage = e is Exception ? e.toString() : languages.unknownError;
+        // openSimpleSnackbar(errorMessage);
+        searchUser.add(ApiResponse.error(errorMessage));
+        logd("SearchUsers", "Error: $e");
+      }
+    } else {
+      if (!state.mounted) return;
+      openSimpleSnackbar(languages.noInternet);
+       searchUser.add(ApiResponse.error(languages.noInternet)); // Also update stream state
+    }
+  }
+
+  transferToUser() async {
+     if (transferToWallet.isClosed) return; // Prevent adding to closed stream
+    var connectivityResult = await cp.Connectivity().checkConnectivity(); // Use alias
+    if (!connectivityResult.contains(cp.ConnectivityResult.none)) { // Use alias
+      transferToWallet.add(ApiResponse.loading());
+      try {
+        double amount = getDoubleFromDynamic(textAmountController.text);
+        var response = BaseModel.fromJson(await walletTransferRepo.transferWalletBalance(
+          amount,
+          transferUserList?.transferId ?? 0,
+          transferUserList?.walletProviderType ?? 0,
+        ));
+        if (!state.mounted) return;
+
+        String message = response.message;
+        // Pass false for isLogout
+        if (isApiStatus(context, response.status, message, false)) {
+          walletAmount = walletAmount - amount; // Update local wallet amount
+          await showTransferDialog(amount); // Wait for dialog to close
+          resetUser();
+          transferToWallet.add(ApiResponse.completed(response)); // Update stream
+          Navigator.pop(context, walletAmount); // Return updated amount
+        } else {
+          // isApiStatus might show dialogs, snackbar might be extra
+          openSimpleSnackbar(message);
+          transferToWallet.add(ApiResponse.error(message));
+        }
+      } catch (e) {
+        if (!state.mounted) return;
+        String errorMessage = e is Exception ? e.toString() : languages.unknownError;
+        openSimpleSnackbar(errorMessage);
+        transferToWallet.add(ApiResponse.error(errorMessage));
+         logd("TransferToUser", "Error: $e");
+      }
+    } else {
+      if (!state.mounted) return;
+      openSimpleSnackbar(languages.noInternet);
+      transferToWallet.add(ApiResponse.error(languages.noInternet)); // Update stream state
+    }
+  }
+
+  // Make it async to await dialog close
+  Future<void> showTransferDialog(double amount) async {
+    // Ensure context is still valid before showing dialog
+     if (!state.mounted) return;
+    await showDialog(
+        context: context,
+        barrierDismissible: false, // Prevent dismissing easily
+        builder: (BuildContext context) {
+          double iconSize = deviceAverageSize * 0.15;
+          return Dialog(
+            insetPadding: EdgeInsets.all(deviceAverageSize * 0.03),
+            backgroundColor: Colors.transparent, // Dialog background is transparent
+            child: Stack(
+              alignment: Alignment.topCenter,
+              children: [
+                // Content container with margin for the icon overlap
+                Container(
+                  decoration: BoxDecoration(
+                    color: colorWhite,
+                    borderRadius: BorderRadius.circular(deviceAverageSize * 0.015),
+                  ),
+                  width: double.infinity,
+                  // Add padding inside, top padding accounts for icon overlap
+                  padding: EdgeInsetsDirectional.only(bottom: deviceHeight * 0.018, top: iconSize / 2 + deviceHeight * 0.01, start: deviceWidth * 0.04, end: deviceWidth * 0.04),
+                  margin: EdgeInsetsDirectional.only(top: iconSize / 2), // Margin for icon overlap
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min, // Make column wrap content
+                    children: [
+                       SizedBox(height: deviceHeight * 0.01), // Space below icon
+                      Text(
+                        languages.success,
+                        textAlign: TextAlign.center, // Center title
+                        style: headerText( // Use a more prominent style
+                          fontSize: 0.045, // Slightly larger
+                          textColor: colorTextCommon,
+                          fontWeight: FontWeight.bold
+                        ),
+                      ),
+                       SizedBox(height: deviceHeight * 0.015),
+                      RichText(
+                        textAlign: TextAlign.center,
+                        text: TextSpan(style: bodyText(fontSize: textSizeBig), children: [
+                          TextSpan(
+                            text: "${languages.successTransaction}\n",
+                          ),
+                          TextSpan(
+                            text: getAmountWithCurrency(amount),
+                            style: bodyText(fontSize: textSizeBig, fontWeight: FontWeight.bold, textColor: colorPrimary),
+                          ),
+                        ]),
+                      ),
+                      CustomRoundedButton(
+                        context,
+                        languages.ok,
+                        () {
+                          Navigator.pop(context); // Close only this dialog
+                          // The pop in transferToUser will handle returning the result
+                        },
+                        minWidth: double.infinity, // Make button full width
+                        setBorder: false,
+                        minHeight: commonBtnHeightSmall, // Adjusted height
+                        textColor: colorWhite,
+                        textSize: textSizeMediumBig, // Adjusted size
+                        textAlign: TextAlign.center,
+                        maxLine: 1,
+                        bgColor: colorPrimary,
+                        margin: EdgeInsetsDirectional.only(
+                          top: deviceAverageSize * 0.03, // More space before button
+                          // No horizontal margin needed if minWidth is double.infinity
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Icon positioned at the top center
+                Container(
+                  height: iconSize,
+                  width: iconSize,
+                  padding: EdgeInsets.all(iconSize / 4), // Padding inside the circle
+                  decoration: BoxDecoration(
+                    color: colorGreen, // Success color
+                    shape: BoxShape.circle, // Make it circular
+                     border: Border.all(color: colorWhite, width: 3) // Optional white border
+                  ),
+                  child: Image.asset(
+                    "assets/images/check.png", // Ensure this asset exists
+                    fit: BoxFit.contain,
+                    color: colorWhite, // Icon color
+                  ),
+                ),
+              ],
+            ),
+          );
+        });
+  }
+
+  @override
+  void dispose() {
+    searchUser.close();
+    transferToWallet.close();
+    textEditingController.dispose();
+    textBeneficialController.dispose();
+    textNumberController.dispose();
+    textEmailController.dispose();
+    textAmountController.dispose();
+    // No super.dispose() needed if not extending a class with dispose
+  }
+}

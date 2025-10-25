@@ -1,0 +1,29 @@
+{
+  "da": [
+    "selectStore",
+    "paymentTypeGoogle",
+    "paymentTypeVipps",
+    "paymentTypeKlarna"
+  ],
+
+  "es": [
+    "selectStore",
+    "paymentTypeGoogle",
+    "paymentTypeVipps",
+    "paymentTypeKlarna"
+  ],
+
+  "no": [
+    "selectStore",
+    "paymentTypeGoogle",
+    "paymentTypeVipps",
+    "paymentTypeKlarna"
+  ],
+
+  "sv": [
+    "selectStore",
+    "paymentTypeGoogle",
+    "paymentTypeVipps",
+    "paymentTypeKlarna"
+  ]
+}

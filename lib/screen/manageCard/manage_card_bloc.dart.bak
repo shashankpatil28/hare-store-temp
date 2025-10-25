@@ -1,0 +1,156 @@
+// Path: lib/screen/manageCard/manage_card_bloc.dart
+
+import 'package:flutter/material.dart';
+import 'package:connectivity_plus/connectivity_plus.dart' as cp; // Alias connectivity_plus
+import 'package:rxdart/rxdart.dart'; // <-- ADD THIS IMPORT
+
+import '../../network/api_response.dart';
+import '../../network/base_dl.dart';
+import '../../network/app_exceptions.dart'; // <-- ADD THIS IMPORT
+import '../../utils/bloc.dart';
+import '../../utils/common_util.dart';
+import '../../dialog/simple_dialog_util.dart'; // Import for dialog
+import '../addCard/add_card.dart';
+import 'manage_card.dart';
+import 'manage_card_dl.dart';
+import 'manage_card_repo.dart';
+
+class ManageCardBloc implements Bloc { // Changed from 'extends Bloc'
+  String tag = "ManageCardBloc>>>";
+  BuildContext context;
+  final ManageCardRepo _manageCardRepo = ManageCardRepo();
+  State<ManageCard> state;
+  ManageCardBloc(this.context,this.state) {
+    getCardList(); // Fetch list on initialization
+  }
+
+  // Use BehaviorSubject for loading/data/error states
+  final _subject = BehaviorSubject<ApiResponse<CardModel>>();
+  final _subjectDeleteCard = BehaviorSubject<ApiResponse<BaseModel>>();
+
+  // Expose streams for UI
+  Stream<ApiResponse<CardModel>> get cardListStream => _subject.stream;
+  Stream<ApiResponse<BaseModel>> get deleteCardStream => _subjectDeleteCard.stream;
+
+  getCardList() async {
+     if (_subject.isClosed) return;
+
+    var connectivityResult = await cp.Connectivity().checkConnectivity(); // Use alias
+    if (!connectivityResult.contains(cp.ConnectivityResult.none)) { // Use alias
+      _subject.sink.add(ApiResponse.loading());
+      try {
+        var response = CardModel.fromJson(await _manageCardRepo.getCardList());
+
+        if(!state.mounted) return; // Check mounted after await
+
+        String message = response.message ?? languages.unknownError;
+        // Pass false for isLogout
+        if (isApiStatus(context, response.status ?? 0, message, false)) {
+          // Check if the list is actually empty
+          if (response.cardList != null && response.cardList!.isNotEmpty) {
+            _subject.sink.add(ApiResponse.completed(response));
+          } else {
+             // Use a specific message for empty list
+            _subject.sink.add(ApiResponse.error(languages.cardListEmptyMsg));
+          }
+        } else {
+           // isApiStatus might handle UI, update stream state
+          _subject.sink.add(ApiResponse.error(message));
+           // if (response.status != 3) openSimpleSnackbar(message); // Might be redundant
+        }
+      } catch (e) {
+        if(!state.mounted) return;
+        String errorMessage = e is Exception ? e.toString() : languages.unknownError;
+        logd(tag, "Get Card List Error: $e");
+        _subject.sink.add(ApiResponse.error(errorMessage));
+         openSimpleSnackbar(errorMessage); // Show error
+      }
+    } else { // No internet
+      if(!state.mounted) return;
+      _subject.sink.add(ApiResponse.error(languages.noInternet));
+      openSimpleSnackbar(languages.noInternet);
+    }
+  }
+
+  openAddCard() {
+    // Navigate and await result, then refresh list if successful (value is true)
+    openScreenWithResult(context, const AddCard()).then((value) {
+      if (value == true) { // Check for explicit true result
+        openSimpleSnackbar(languages.cardAddSuccessful);
+        getCardList(); // Refresh the list
+      }
+    });
+  }
+
+  // Show confirmation dialog before deleting
+  confirmDeleteCard(int cardId) {
+     showDialog(
+       context: context,
+       barrierDismissible: false,
+       builder: (BuildContext dialogContext) {
+         return SimpleDialogUtil(
+           title: languages.removeCard,
+           message: languages.removeCardConfirmMsg,
+           positiveButtonTxt: languages.remove,
+           negativeButtonTxt: languages.cancel,
+           onPositivePress: () {
+             Navigator.pop(dialogContext); // Close dialog
+             deleteCard(cardId); // Proceed with deletion
+           },
+           onNegativePress: () {
+             Navigator.pop(dialogContext); // Just close dialog
+           },
+         );
+       }
+     );
+  }
+
+
+  // Actual delete card API call
+  deleteCard(int cardId) async {
+     if (_subjectDeleteCard.isClosed) return;
+
+    var connectivityResult = await cp.Connectivity().checkConnectivity(); // Use alias
+    if (!connectivityResult.contains(cp.ConnectivityResult.none)) { // Use alias
+      _subjectDeleteCard.sink.add(ApiResponse.loading());
+      try {
+        var response = BaseModel.fromJson(await _manageCardRepo.removeCard(cardId));
+
+        if(!state.mounted) return; // Check mounted after await
+
+        String message = response.message;
+        // Pass false for isLogout
+        if (isApiStatus(context, response.status, message, false)) {
+          _subjectDeleteCard.sink.add(ApiResponse.completed(response));
+          // Don't pop here, confirmation dialog was already popped
+          // Navigator.pop(context, true);
+          openSimpleSnackbar(languages.removeCardSuccessMsg);
+          getCardList(); // Refresh the list after successful deletion
+        } else {
+           // API status indicates an issue
+          _subjectDeleteCard.sink.add(ApiResponse.error(message));
+          if (response.status != 3) openSimpleSnackbar(message); // Show error if not handled
+        }
+      } catch (e) {
+        if(!state.mounted) return;
+        String errorMessage = e is Exception ? e.toString() : languages.unknownError;
+        openSimpleSnackbar(errorMessage);
+        _subjectDeleteCard.sink.add(ApiResponse.error(errorMessage));
+         logd(tag, "Delete Card Error: $e");
+      }
+    } else { // No internet
+      if(!state.mounted) return;
+       // Don't pop here
+      // Navigator.pop(context, true);
+      _subjectDeleteCard.sink.add(ApiResponse.error(languages.noInternet)); // Update stream
+      openSimpleSnackbar(languages.noInternet);
+    }
+  }
+
+  @override
+  void dispose() {
+    _subject.close();
+    _subjectDeleteCard.close();
+    // No super.dispose needed
+  }
+}

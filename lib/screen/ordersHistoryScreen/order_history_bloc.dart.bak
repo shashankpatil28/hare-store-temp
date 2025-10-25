@@ -1,0 +1,170 @@
+// Path: lib/screen/ordersHistoryScreen/order_history_bloc.dart
+
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart' as cp; // Alias connectivity_plus
+import 'package:flutter/material.dart'; // Changed from cupertino.dart for BuildContext
+import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:rxdart/rxdart.dart'; // <-- ADD THIS IMPORT
+
+import '../../network/api_response.dart';
+import '../../utils/bloc.dart';
+import '../../utils/common_util.dart';
+import 'order_history_dl.dart';
+import 'order_history_repo.dart';
+import 'order_history_screen.dart';
+
+class OrderHistoryBloc implements Bloc {
+  String tag = "OrderHistoryBloc>>>";
+  BuildContext context;
+  final OrderHistoryRepo _repo = OrderHistoryRepo();
+
+  // Define filter types constants
+  final int filterToday = 1, filterUpcoming = 5, filterLast7Days = 2, filterThisMonth = 3, filterYear = 4, filterAll = 0;
+
+  late List<HistoryFilterModel> list; // Initialize in constructor
+  HistoryFilterModel? filterSelected; // Keep track of the selected filter
+
+  // Paging controller for infinite scroll
+  final PagingController<int, OrderHistoryItem> _pagingController = PagingController(firstPageKey: 1);
+  PagingController<int, OrderHistoryItem> get pagingController => _pagingController; // Public getter
+
+  // Stream to hold the overall response (mainly for initial load and aggregate data)
+  final _orderHistoryResponse = BehaviorSubject<ApiResponse<OrderHistoryResponse>>();
+  // Stream to hold the currently selected filter model for UI updates
+  final historyFilterModel = BehaviorSubject<HistoryFilterModel>();
+
+  State<OrderHistoryScreen> state;
+
+  OrderHistoryBloc(this.context, this.state) {
+    // Initialize filter list using localized strings
+    list = [
+      HistoryFilterModel(languages.txtToday, filterToday),
+      HistoryFilterModel(languages.txtUpcoming, filterUpcoming),
+      HistoryFilterModel(languages.txtLast7Days, filterLast7Days),
+      HistoryFilterModel(languages.txtThisMonth, filterThisMonth),
+      HistoryFilterModel(languages.txtYear, filterYear),
+      HistoryFilterModel(languages.txtAll, filterAll),
+    ];
+    // Set default filter
+    filterSelected = list[0]; // Default to "Today"
+    historyFilterModel.add(filterSelected!); // Emit default filter
+
+    // Add listener for page requests from the PagingController
+    _pagingController.addPageRequestListener((pageKey) {
+      // Ensure filterSelected is not null before fetching
+      if (filterSelected != null) {
+        getOrderHistory(pageKey, filterSelected!.filterType);
+      } else {
+         logd(tag, "Page request listener called but filterSelected is null.");
+         // Optionally handle this case, maybe fetch 'All' by default or show error
+      }
+    });
+
+    // Initial load handled by addPageRequestListener
+    // _pagingController.refresh(); // No need to call refresh here, listener handles first load
+  }
+
+  // Stream for the overall response (useful for header data like counts)
+  Stream<ApiResponse<OrderHistoryResponse>> get orderHistoryResponseStream => _orderHistoryResponse.stream;
+
+  // Function to change the filter and refresh the list
+  void changeFilter(HistoryFilterModel newFilter) {
+    if (filterSelected?.filterType != newFilter.filterType) {
+      filterSelected = newFilter;
+      if (!historyFilterModel.isClosed) {
+        historyFilterModel.add(newFilter);
+      }
+      _pagingController.refresh(); // Refresh the list with the new filter
+    }
+  }
+
+
+  getOrderHistory(int page, int filterType) async {
+    // Don't update _orderHistoryResponse loading state here for subsequent pages
+    // The PagingController handles its own loading indicators
+    if (page == 1 && !_orderHistoryResponse.isClosed) {
+      _orderHistoryResponse.add(ApiResponse.loading());
+    }
+
+    var connectivityResult = await cp.Connectivity().checkConnectivity(); // Use alias
+    if (!connectivityResult.contains(cp.ConnectivityResult.none)) { // Use alias
+      try {
+        OrderHistoryResponse response = OrderHistoryResponse.fromJson(await _repo.getOrderHistory(page: page, filterType: filterType));
+
+        if(!state.mounted) return; // Check mounted after await
+
+        var apiMsg = getApiMsg(context, response.message, response.messageCode);
+
+        // Pass false for isLogout
+        if (isApiStatus(context, response.status, apiMsg, false)) {
+           // Update the overall response stream only on the first page
+          if (page == 1 && !_orderHistoryResponse.isClosed) {
+            _orderHistoryResponse.add(ApiResponse.completed(response));
+          }
+
+          final isLastPage = response.currentPage >= response.lastPage; // Use >= for safety
+          final newItems = response.orderHistory;
+
+          if (isLastPage) {
+            _pagingController.appendLastPage(newItems);
+          } else {
+            final nextPageKey = page + 1;
+            _pagingController.appendPage(newItems, nextPageKey);
+          }
+        } else { // API status indicates an issue
+          if(!_orderHistoryResponse.isClosed && page == 1) {
+             _orderHistoryResponse.add(ApiResponse.error(apiMsg));
+          }
+           _pagingController.error = apiMsg; // Set error on PagingController
+          // isApiStatus might handle UI, snackbar may be redundant
+          // if (response.status != 3) openSimpleSnackbar(apiMsg);
+        }
+      } catch (e) {
+        if(!state.mounted) return;
+        String errorMessage = e is Exception ? e.toString() : languages.unknownError;
+         logd(tag, "Get Order History Error (Page $page): $e");
+         if(!_orderHistoryResponse.isClosed && page == 1) {
+            _orderHistoryResponse.sink.add(ApiResponse.error(errorMessage));
+         }
+        _pagingController.error = errorMessage; // Set error on PagingController
+        // openSimpleSnackbar(errorMessage); // Show error maybe handled by PagingController UI
+      }
+    } else { // No internet
+      if(!state.mounted) return;
+      final noInternetMsg = languages.noInternet;
+       if(!_orderHistoryResponse.isClosed && page == 1) {
+          _orderHistoryResponse.sink.add(ApiResponse.error(noInternetMsg));
+       }
+      _pagingController.error = noInternetMsg; // Set error on PagingController
+      openSimpleSnackbar(noInternetMsg); // Show snackbar for no internet
+    }
+  }
+
+  @override
+  void dispose() {
+    _pagingController.dispose();
+    _orderHistoryResponse.close();
+    historyFilterModel.close();
+    // No super.dispose needed
+  }
+}
+
+// Model for filter options (keep it simple)
+class HistoryFilterModel {
+  String filterName;
+  int filterType;
+
+  HistoryFilterModel(this.filterName, this.filterType);
+
+   // Add == and hashCode for comparison, useful for Radio groupValue
+   @override
+   bool operator ==(Object other) =>
+       identical(this, other) ||
+       other is HistoryFilterModel &&
+           runtimeType == other.runtimeType &&
+           filterType == other.filterType;
+
+   @override
+   int get hashCode => filterType.hashCode;
+}
