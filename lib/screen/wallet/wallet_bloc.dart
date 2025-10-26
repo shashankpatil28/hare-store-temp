@@ -148,7 +148,8 @@ class WalletBloc implements Bloc { // Changed from 'extends Bloc'
               context,
               MaterialPageRoute(
                 builder: (context) => PaymentScreenWebView(
-                  redirectUrl: response.redirectUrl,
+                  // MODIFIED: Changed parameter name to 'paymentUrl'
+                  paymentUrl: response.redirectUrl,
                   successUrl: response.successUrl,
                   failedUrl: response.failedUrl,
                 ),

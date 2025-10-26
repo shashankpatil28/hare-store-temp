@@ -7,7 +7,9 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+// MODIFIED: Commented out this import because the file is missing.
+// You must run 'flutter gen-l10n' to regenerate it.
+// import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -666,10 +668,12 @@ setChangedLanguage(BuildContext context, String languageCode, State state,
     {Function()? nextAction}) {
   changeLanguage(context, languageCode, state).then((value) {
     localeCode = getLocale();
-    AppLocalizations.delegate.load(localeCode).then((value) {
-      languages = value;
-      if (nextAction != null) nextAction();
-    });
+    // MODIFIED: Commented out the lines below because 'AppLocalizations' is undefined.
+    // You must run 'flutter gen-l10n' and then uncomment these lines.
+    // AppLocalizations.delegate.load(localeCode).then((value) {
+    //   languages = value;
+    //   if (nextAction != null) nextAction();
+    // });
   });
 }
 

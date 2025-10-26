@@ -60,25 +60,69 @@ class OrderHistoryBloc implements Bloc {
 
     // Initialize the PagingController using the new API.
     // getNextPageKey is used by the controller to compute next integer page keys.
-    // fetchPage is called by the controller when it needs data for a specific page key.
+    // fetchPage must return a Future<List<T>> (non-null) — implement accordingly.
     _pagingController = PagingController<int, OrderHistoryItem>(
       // decide next page key from the current state; this helper uses the provided extensions
       getNextPageKey: (pagingState) =>
           pagingState.lastPageIsEmpty ? null : pagingState.nextIntPageKey,
       // When controller needs a page, it calls this function with the pageKey.
-      // We'll delegate actual fetching to getOrderHistory which updates controller.value via copyWith.
+      // This fetchPage returns List<OrderHistoryItem> (non-null) or throws on error.
       fetchPage: (pageKey) async {
+        // Determine filter at call time
         final currentFilter = filterSelected?.filterType ?? filterAll;
-        await getOrderHistory(pageKey, currentFilter);
-      },
 
+        // Check connectivity first
+        var connectivityResult = await cp.Connectivity().checkConnectivity();
+        if (connectivityResult.contains(cp.ConnectivityResult.none)) {
+          // No internet -> throw so controller captures error
+          final noInternetMsg = languages.noInternet;
+          // For the initial page also update header stream
+          if (pageKey == 1 && !_orderHistoryResponse.isClosed) {
+            _orderHistoryResponse.sink.add(ApiResponse.error(noInternetMsg));
+          }
+          throw Exception(noInternetMsg);
+        }
+
+        try {
+          // Fetch raw response from repo
+          final raw = await _repo.getOrderHistory(page: pageKey, filterType: currentFilter);
+          final response = OrderHistoryResponse.fromJson(raw);
+
+          if (!state.mounted) {
+            // If widget is unmounted, return empty list (non-null)
+            return <OrderHistoryItem>[];
+          }
+
+          final apiMsg = getApiMsg(context, response.message, response.messageCode);
+
+          if (!isApiStatus(context, response.status, apiMsg, false)) {
+            // API returned non-success -> if first page update header stream, then throw
+            if (pageKey == 1 && !_orderHistoryResponse.isClosed) {
+              _orderHistoryResponse.add(ApiResponse.error(apiMsg));
+            }
+            throw Exception(apiMsg);
+          }
+
+          // Successful response -> update header for first page
+          if (pageKey == 1 && !_orderHistoryResponse.isClosed) {
+            _orderHistoryResponse.add(ApiResponse.completed(response));
+          }
+
+          // Return items (non-null). Controller will append pages and manage its internal state.
+          return response.orderHistory;
+        } catch (e) {
+          // Ensure header stream updated for first page error
+          final errMsg = e is Exception ? e.toString() : languages.apiErrorUnexpectedErrorMsg;
+          if (pageKey == 1 && !_orderHistoryResponse.isClosed) {
+            _orderHistoryResponse.sink.add(ApiResponse.error(errMsg));
+          }
+          // Re-throw to let PagingController set its error state
+          throw Exception(errMsg);
+        }
+      },
     );
 
-    // Note: no addPageRequestListener needed in v5.x — controller will call fetchPage automatically.
-
-    // Optionally trigger the first load by fetching first page key using fetchNextPage.
-    // The controller will internally call our fetchPage to load the first page.
-    // If you prefer to wait until UI mounts, you can call this from the screen after init.
+    // Trigger the first load
     _pagingController.fetchNextPage();
   }
 
@@ -94,10 +138,7 @@ class OrderHistoryBloc implements Bloc {
         historyFilterModel.add(newFilter);
       }
       // Reset paging state and trigger first page load
-      // New API: we swap the controller.state to an "empty" state and call fetchNextPage.
-      // Easiest approach here: clear pages and keys synchronously and request next page.
       final currentValue = _pagingController.value;
-      // reset pages/keys and hasNextPage true (so fetchNextPage will run)
       _pagingController.value = currentValue.copyWith(
         pages: const <List<OrderHistoryItem>>[],
         keys: const <int>[],
@@ -109,10 +150,11 @@ class OrderHistoryBloc implements Bloc {
     }
   }
 
-  // The new getOrderHistory updates PagingController.value using copyWith on its PagingState.
-  // page: integer page number (pageKey). filterType: filter value.
+  // NOTE:
+  // getOrderHistory used earlier for manual controller updates is kept for compatibility
+  // but it's no longer used by the controller directly. You can remove it if unused.
   Future<void> getOrderHistory(int page, int filterType) async {
-    // For the first page, also set the overall response stream loading
+    // Kept for backward compatibility — it updates controller state manually.
     if (page == 1 && !_orderHistoryResponse.isClosed) {
       _orderHistoryResponse.add(ApiResponse.loading());
     }
@@ -128,7 +170,6 @@ class OrderHistoryBloc implements Bloc {
         final apiMsg = getApiMsg(context, response.message, response.messageCode);
 
         if (isApiStatus(context, response.status, apiMsg, false)) {
-          // update header stream only for first page
           if (page == 1 && !_orderHistoryResponse.isClosed) {
             _orderHistoryResponse.add(ApiResponse.completed(response));
           }
@@ -136,7 +177,6 @@ class OrderHistoryBloc implements Bloc {
           final isLastPage = response.currentPage >= response.lastPage;
           final newItems = response.orderHistory;
 
-          // Build new pages and keys lists from current PagingState
           final currentValue = _pagingController.value;
           final existingPages = currentValue.pages ?? <List<OrderHistoryItem>>[];
           final existingKeys = currentValue.keys?.cast<int>() ?? <int>[];
@@ -145,7 +185,6 @@ class OrderHistoryBloc implements Bloc {
           final List<int> updatedKeys;
 
           if (page == 1) {
-            // replace pages with the first page
             updatedPages = [newItems];
             updatedKeys = [page];
           } else {
@@ -153,23 +192,18 @@ class OrderHistoryBloc implements Bloc {
             updatedKeys = [...existingKeys, page];
           }
 
-          // Update the controller's state. copyWith accepts pages, keys, hasNextPage and more.
           _pagingController.value = currentValue.copyWith(
             pages: updatedPages,
             keys: updatedKeys,
             hasNextPage: !isLastPage,
-            // clear any previous error
             error: null,
           );
         } else {
-          // API indicated an error or non-success status
           if (!_orderHistoryResponse.isClosed && page == 1) {
             _orderHistoryResponse.add(ApiResponse.error(apiMsg));
           }
-          // set error into the controller's state
           final currentValue = _pagingController.value;
           _pagingController.value = currentValue.copyWith(error: apiMsg);
-          // Optionally show snackbar, but isApiStatus may already handle it
         }
       } catch (e) {
         if (!state.mounted) return;
@@ -185,7 +219,6 @@ class OrderHistoryBloc implements Bloc {
         _pagingController.value = currentValue.copyWith(error: errorMessage);
       }
     } else {
-      // No internet
       if (!state.mounted) return;
       final noInternetMsg = languages.noInternet;
       if (!_orderHistoryResponse.isClosed && page == 1) {

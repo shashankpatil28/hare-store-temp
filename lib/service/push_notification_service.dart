@@ -338,8 +338,10 @@ class PushNotificationService {
     final Map<String, dynamic> serviceAccount = jsonDecode(source);
     var accountCredentials = auth_io.ServiceAccountCredentials.fromJson(serviceAccount);
 
-    AutoRefreshingAuthClient autoRefreshingAuthClient =
-        await clientViaServiceAccount(
+    // MODIFIED: Added 'auth_io.' prefix
+    auth_io.AutoRefreshingAuthClient autoRefreshingAuthClient =
+        // MODIFIED: Added 'auth_io.' prefix
+        await auth_io.clientViaServiceAccount(
       accountCredentials,
       ['https://www.googleapis.com/auth/firebase.messaging'],
     );

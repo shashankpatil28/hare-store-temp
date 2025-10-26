@@ -27,6 +27,9 @@ class OverlayPermissionDialogState extends State<OverlayPermissionDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // MODIFIED: Added appName variable
+    final String appName = 'Hare Store';
+
     return Dialog(
       insetPadding: EdgeInsets.all(dialogPadding),
       backgroundColor: colorWhite,
@@ -44,7 +47,8 @@ class OverlayPermissionDialogState extends State<OverlayPermissionDialog> {
               child: Column(
                 children: [
                   Text(
-                    'Allow {appName} to display over Other apps'('Hare Store'),
+                    // MODIFIED: Used string interpolation
+                    'Allow $appName to display over Other apps',
                     textAlign: TextAlign.center,
                     style: bodyText(
                       textColor: colorBlack,
@@ -55,7 +59,8 @@ class OverlayPermissionDialogState extends State<OverlayPermissionDialog> {
                   Padding(
                     padding: EdgeInsets.symmetric(vertical: deviceHeight * 0.015, horizontal: deviceWidth * 0.02),
                     child: Text(
-                      'Allow {appName} to display over Other apps in Order to receive orders when you\'re online.'('Hare Store'),
+                      // MODIFIED: Used string interpolation
+                      'Allow $appName to display over Other apps in Order to receive orders when you\'re online.',
                       textAlign: TextAlign.start,
                       style: bodyText(
                         textColor: colorTextCommon,

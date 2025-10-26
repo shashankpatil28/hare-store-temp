@@ -84,7 +84,8 @@ class MyProfileBloc implements Bloc {
           ChatConstant.userType: chatWithTypeStore, // Assuming this is for store owner
           // Add other relevant fields like FcmToken if needed
           ChatConstant.fcmToken: getFireToken(),
-          ChatConstant.userDateTime: DateTime.now().toIso8101String(), // Optional: timestamp
+          // MODIFIED: Corrected typo from toIso8101String to toIso8601String
+          ChatConstant.userDateTime: DateTime.now().toIso8601String(), // Optional: timestamp
       };
       try {
           // Use set() to create or overwrite the user node with the correct ID
@@ -188,23 +189,22 @@ class MyProfileBloc implements Bloc {
     String contactNumber = response.contactNumber;
     String selectCountryCode = response.selectCountryCode;
 
+    // MODIFIED: Removed Future.wait and .then, as prefSet... functions are synchronous
     // Await preference setting
-    Future.wait([
-      prefSetString(prefFullName, providerName),
-      prefSetString(prefProfileImage, providerProfileImage),
-      prefSetString(prefEmail, email),
-      prefSetString(prefContactNumber, contactNumber),
-      prefSetString(prefCountryCode, selectCountryCode),
-      prefSetInt(prefGender, providerGender)
-    ]).then((_) {
-        // Update controllers and streams after prefs are saved
-        _contactNumber.text = contactNumber;
-        _email.text = email;
-        _fullName.text = providerName;
-        countryCode = selectCountryCode;
-        if(!_genderEnum.isClosed) changeGenderEnum(getGenderInEnum(providerGender));
-        if(!profileImageStored.isClosed) profileImageStored.add(providerProfileImage);
-    });
+    prefSetString(prefFullName, providerName);
+    prefSetString(prefProfileImage, providerProfileImage);
+    prefSetString(prefEmail, email);
+    prefSetString(prefContactNumber, contactNumber);
+    prefSetString(prefCountryCode, selectCountryCode);
+    prefSetInt(prefGender, providerGender);
+    
+    // Update controllers and streams after prefs are saved
+    _contactNumber.text = contactNumber;
+    _email.text = email;
+    _fullName.text = providerName;
+    countryCode = selectCountryCode;
+    if(!_genderEnum.isClosed) changeGenderEnum(getGenderInEnum(providerGender));
+    if(!profileImageStored.isClosed) profileImageStored.add(providerProfileImage);
   }
 
   deleteAccountApiCall() async {

@@ -161,20 +161,23 @@ class ProductScreenState extends State<ProductScreen> {
                     },
                   );
                 } else {
+                  // Show NoRecordFound if list is empty or data is null
                   return NoRecordFound(
                     message: snapshot.data?.message ?? languages.emptyData,
                   );
                 }
               case Status.error:
+                 // The Retry widget should just show the icon to trigger the retry action.
+                 // Error messages are typically displayed separately or by the Error widget.
                 return Center(
                   child: Retry(
-                    message: snapshot.data?.message,
+                    // MODIFIED: Removed the 'message' parameter
                     onRetryPressed: () => _bloc?.getProductList(),
                   ),
                 );
             }
           }
-
+          // Default case: show shimmer while waiting for initial data
           return const ProductShimmer();
         },
       ),

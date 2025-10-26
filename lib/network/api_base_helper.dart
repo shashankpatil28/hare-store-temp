@@ -166,7 +166,8 @@ class ApiBaseHelper {
     String accessToken = prefGetString(prefAccessToken);
     String languageCode = prefGetStringWithDefaultValue(prefSelectedLanguageCode, defaultLanguage); // Use default if empty
     String currency = prefGetStringWithDefaultValue(prefSelectedCurrency, defaultCurrency); // Use default if empty
-    String timeZone = await FlutterTimezone.getLocalTimezone();
+    // MODIFIED: Added .toString() to get the timezone name string
+    String timeZone = (await FlutterTimezone.getLocalTimezone()).toString();
 
     Map<String, String> headers = {
       // Content-Type might be set automatically by Dio based on data, but explicitly setting is fine

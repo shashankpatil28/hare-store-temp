@@ -6,7 +6,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemChrome, SystemUiOverlayStyle, DeviceOrientation;
 // --- FIX 1: Correct import path ---
-import 'l10n/app_localizations.dart'; 
+import 'l10n/app_localizations.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -32,11 +32,11 @@ late AppLocalizations languages;
 @pragma('vm:entry-point')
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // --- FIX 2: Get .timezone property from the object ---
-  final String localTimezoneString = (await FlutterTimezone.getLocalTimezone()).timezone; 
+
+  // --- MODIFIED: Use .toString() to get the timezone name string ---
+  final String localTimezoneString = (await FlutterTimezone.getLocalTimezone()).toString();
   localTimeZone = localTimezoneString;
-  
+
   var connectivityResult = await cp.Connectivity().checkConnectivity(); // Use alias
   if (!connectivityResult.contains(cp.ConnectivityResult.none)) { // Use alias
     await Firebase.initializeApp(
@@ -165,10 +165,10 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
         deviceHeight = MediaQuery.of(context).size.height;
         deviceAverageSize = (deviceWidth + deviceHeight) / 2;
         statusHeight = MediaQuery.of(context).padding.top;
-        
+
         // This line was already fixed in a previous step
         textScaleFactorOf = MediaQuery.of(context).textScaleFactor;
-        
+
         // This check should now work with the corrected import
         if (AppLocalizations.of(context) != null) {
           languages = AppLocalizations.of(context)!;
