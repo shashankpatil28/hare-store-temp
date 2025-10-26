@@ -229,7 +229,7 @@ class OrderDetailBloc implements Bloc {
       //HEADER
       await SunmiPrinter.lineWrap(1);
       await SunmiPrinter.printText(
-        languages.appName.toUpperCase(),
+        'Hare Store'.toUpperCase(),
         style: SunmiTextStyle(fontSize: _fsLG, align: SunmiPrintAlign.CENTER, bold: true),
       );
       await SunmiPrinter.lineWrap(1);

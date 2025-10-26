@@ -42,7 +42,7 @@ class _PendingScreenState extends State<PendingScreen> {
           centerTitle: true,
           titleSpacing: deviceWidth * 0.02,
           title: Text(
-            languages.appName,
+            'Hare Store',
             style: toolbarStyle(),
           ),
         ),

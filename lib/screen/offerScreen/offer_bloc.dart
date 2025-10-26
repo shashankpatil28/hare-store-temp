@@ -12,6 +12,25 @@ import 'offer_dl.dart';
 import 'offer_repo.dart';
 import 'offer_screen.dart';
 
+// Definition for the OfferType helper class
+class OfferType {
+  final String offerName;
+  final int offerType;
+  OfferType(this.offerName, this.offerType);
+
+  // Required for DropdownButtonFormField2 to correctly compare values
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is OfferType &&
+          runtimeType == other.runtimeType &&
+          offerName == other.offerName &&
+          offerType == other.offerType;
+
+  @override
+  int get hashCode => offerName.hashCode ^ offerType.hashCode;
+}
+
 class OfferBloc implements Bloc { // Changed from 'extends Bloc'
   String tag = "OfferBloc>>>";
   BuildContext context;
@@ -23,8 +42,8 @@ class OfferBloc implements Bloc { // Changed from 'extends Bloc'
 
   // List of available offer types
   List<OfferType> list = [
-    OfferType(languages.amount, 1),
-    OfferType(languages.percentage, 2)
+    OfferType(languages.amount_, 1),
+    OfferType(languages.percentage_, 2)
   ];
 
   // Streams for UI state
@@ -33,7 +52,8 @@ class OfferBloc implements Bloc { // Changed from 'extends Bloc'
   final getOfferUpdate = BehaviorSubject<ApiResponse<OfferResponse>>();
   final getOfferRemove = BehaviorSubject<ApiResponse<OfferResponse>>();
 
-  State<OfferSate> state; // Assuming OfferSate is the State class for OfferScreen
+  // MODIFIED: The state is for 'OfferScreen', not 'OfferSate'.
+  State<OfferScreen> state;
 
   OfferBloc(this.context, this.state) {
     getAndUpdateOffer(isUpdate: false); // Fetch initial offer data
@@ -81,7 +101,7 @@ class OfferBloc implements Bloc { // Changed from 'extends Bloc'
 
         if (!state.mounted) return; // Check mounted after await
 
-        var apiMsg = getApiMsg(context, response.message ?? languages.apiErrorUnexpectedErrorMsg, response.messageCode ?? 0);
+        var apiMsg = getApiMsg(context, response.message ?? 'Unexpected error occurred', response.messageCode ?? 0);
 
         // Pass false for isLogout
         if (isApiStatus(context, response.status ?? 0, apiMsg, false)) {
@@ -89,11 +109,12 @@ class OfferBloc implements Bloc { // Changed from 'extends Bloc'
 
            // Update UI fields only when fetching (isUpdate == false) or after successful clear
           if (!isUpdate || isClearOffer) {
-             setOfferData(response.offer);
+             // Pass 'response' directly
+             setOfferData(response);
           }
           // Show success message only on explicit update/remove actions
           if (isUpdate) {
-             openSimpleSnackbar(isClearOffer ? languages.removeOfferSuccessMsg : languages.updateOfferSuccessMsg);
+             openSimpleSnackbar(isClearOffer ? 'remove offer success message' : 'update offer success message');
           }
         } else {
            // API status indicates an issue
@@ -102,7 +123,7 @@ class OfferBloc implements Bloc { // Changed from 'extends Bloc'
         }
       } catch (e) {
         if (!state.mounted) return;
-        String errorMessage = e is Exception ? e.toString() : languages.apiErrorUnexpectedErrorMsg;
+        String errorMessage = e is Exception ? e.toString() : 'Unexpected error occurred';
         targetSubject.add(ApiResponse.error(errorMessage));
         openSimpleSnackbar(errorMessage);
         logd(tag, "Offer Action Error: $e");
@@ -115,7 +136,7 @@ class OfferBloc implements Bloc { // Changed from 'extends Bloc'
   }
 
   // Update text controllers and selected offer type
-  setOfferData(Offer? offer) {
+  setOfferData(OfferResponse? offer) {
      if (offer != null) {
        minimumBillAmount.text = offer.offerMinBillAmount.toStringAsFixed(2); // Format as needed
        discountOffer.text = offer.offerDiscount.toStringAsFixed(2); // Format as needed
@@ -131,7 +152,7 @@ class OfferBloc implements Bloc { // Changed from 'extends Bloc'
         offerType = list[0]; // Reset to default type
      }
      // Notify dropdown if needed (though DropdownButtonFormField usually handles this)
-     // Consider adding a stream for offerType if direct UI updates are needed
+     // Consider adding a stream for offerType if 'setOfferData' is called from BLoC logic
   }
 
   @override

@@ -44,7 +44,7 @@ class OverlayPermissionDialogState extends State<OverlayPermissionDialog> {
               child: Column(
                 children: [
                   Text(
-                    languages.permissionText1(languages.appName),
+                    'Allow {appName} to display over Other apps'('Hare Store'),
                     textAlign: TextAlign.center,
                     style: bodyText(
                       textColor: colorBlack,
@@ -55,7 +55,7 @@ class OverlayPermissionDialogState extends State<OverlayPermissionDialog> {
                   Padding(
                     padding: EdgeInsets.symmetric(vertical: deviceHeight * 0.015, horizontal: deviceWidth * 0.02),
                     child: Text(
-                      languages.permissionText2(languages.appName),
+                      'Allow {appName} to display over Other apps in Order to receive orders when you\'re online.'('Hare Store'),
                       textAlign: TextAlign.start,
                       style: bodyText(
                         textColor: colorTextCommon,
@@ -77,7 +77,7 @@ class OverlayPermissionDialogState extends State<OverlayPermissionDialog> {
                         ),
                         Flexible(
                           child: Text(
-                            languages.permissionText3,
+                            'Tap Allow and slide the toggle on the Settings screen on to on',
                             textAlign: TextAlign.start,
                             style: bodyText(
                               textColor: colorTextCommon,
@@ -102,7 +102,7 @@ class OverlayPermissionDialogState extends State<OverlayPermissionDialog> {
                         ),
                         Flexible(
                           child: Text(
-                            languages.permissionText4,
+                            'Set the Quick access icon to on to see this icon over other apps',
                             textAlign: TextAlign.start,
                             style: bodyText(
                               textColor: colorTextCommon,

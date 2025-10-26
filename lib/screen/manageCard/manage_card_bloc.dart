@@ -89,8 +89,8 @@ class ManageCardBloc implements Bloc { // Changed from 'extends Bloc'
        barrierDismissible: false,
        builder: (BuildContext dialogContext) {
          return SimpleDialogUtil(
-           title: languages.removeCard,
-           message: languages.removeCardConfirmMsg,
+           title: 'Remove Card',
+           message: languages.removeCardSuccessMsg,
            positiveButtonTxt: languages.remove,
            negativeButtonTxt: languages.cancel,
            onPositivePress: () {

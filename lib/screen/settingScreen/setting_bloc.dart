@@ -1,303 +1,179 @@
-// Path: lib/screen/splashScreen/splash_bloc.dart
-
-import 'dart:io';
-
-import 'package:connectivity_plus/connectivity_plus.dart' as cp; // Alias connectivity_plus
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart';
+// Path: lib/screen/settingScreen/setting_bloc.dart
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:package_info_plus/package_info_plus.dart';
-import 'package:rxdart/rxdart.dart'; // Import BehaviorSubject
-
-import '../../dialog/simple_dialog_box.dart';
+import 'package:rxdart/rxdart.dart';
 import '../../network/api_response.dart';
 import '../../utils/bloc.dart';
 import '../../utils/common_util.dart';
-import '../homeScreen/home_screen.dart';
-import '../loginScreen/login_dl.dart';
-import '../pendingScreen/pending_screen.dart';
-import '../selectLanguageAndCurrency/language_currency_screen.dart';
-import '../verificationScreen/otp_screen.dart'; // Added for OtpScreen import
-import 'splash_dl.dart';
-import 'splash_repo.dart';
-import 'splash_screen.dart';
+import 'setting_dl.dart';
+import 'settings_repo.dart'; // Corrected import from settings_repo.dart
+// Removed import 'setting_screen.dart' to break circular dependency
 
+// Helper class for Dropdowns, as inferred from setting_screen.dart
+class KeyValuePair {
+  final String key;
+  final double value;
+  KeyValuePair(this.key, this.value);
 
-class SplashBloc extends Bloc {
-  String tag = "SplashBloc>>>";
-  final SplashRepo _repo = SplashRepo();
+  // Required for DropdownButtonFormField2 to compare values
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is KeyValuePair &&
+          runtimeType == other.runtimeType &&
+          key == other.key &&
+          value == other.value;
+
+  @override
+  int get hashCode => key.hashCode ^ value.hashCode;
+}
+
+class SettingBloc implements Bloc {
+  String tag = "SettingBloc>>>";
+  final SettingsRepo _repo = SettingsRepo();
   BuildContext context;
+  State state; // MODIFIED: Changed from State<SettingScreen> to State
 
-  final checkServiceStatus = BehaviorSubject<ApiResponse>();
-  State<SplashScreen> state;
+  // Streams for UI
+  final settingSubject = BehaviorSubject<ApiResponse<SettingModel>>();
+  final updateSubject = BehaviorSubject<ApiResponse>();
+  final storeTimingSubject = BehaviorSubject<List<StoreTimings>>();
 
-  SplashBloc(this.context, this.state) {
-    // It's generally better to call async init functions outside the constructor
-    // Consider calling _initialize() from initState or didChangeDependencies in the widget
-    _initialize();
+  // Text Controllers
+  TextEditingController orderMinAmount = TextEditingController();
+  TextEditingController packageCharge = TextEditingController();
+
+  // Dropdown data
+  List<KeyValuePair> edtList = [];
+  List<KeyValuePair> radiusList = [];
+  KeyValuePair? deliveryTime;
+  KeyValuePair? storeDeliveryRadius;
+
+  SettingBloc(this.context, this.state) {
+    // Fetch initial settings
+    getAndUpdateSetting(isUpdate: false);
   }
 
-  // Separate async initialization
-  Future<void> _initialize() async {
-    await setToken(); // Ensure token is set before checking versions/status
-    _loadWidget();
-  }
+  // Fetch or Update settings
+  getAndUpdateSetting({bool isUpdate = false}) async {
+    // Use the correct subject based on the action
+    final subject = isUpdate ? updateSubject : settingSubject;
+    if (subject.isClosed) return;
 
-  final _subject = BehaviorSubject<ApiResponse<AppVersionCheckPojo>>();
+    subject.add(ApiResponse.loading());
 
-  BehaviorSubject<ApiResponse<AppVersionCheckPojo>> get subject => _subject;
+    // Prepare store timings data
+    List<StoreTimings> currentTimings = storeTimingSubject.valueOrNull ?? [];
+    List<Map<String, dynamic>> timingsJson = currentTimings
+        .where((timing) => timing.isCheck) // Only send checked timings
+        .map((timing) => timing.toJson())
+        .toList();
+    String storeTiming = jsonEncode(timingsJson);
 
-  _loadWidget() async {
-    var connectivityResult = await cp.Connectivity().checkConnectivity();
-    // Use contains for multiple results, or direct comparison for single
-    if (!connectivityResult.contains(cp.ConnectivityResult.none)) {
-      await checkAppVersionApi(); // Wait for version check before proceeding
-    } else {
-      if (!state.mounted) return;
-      showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            // --- FIX: Removed duplicate SimpleDialogBox line ---
-            return SimpleDialogBox(
-              title: languages.connection,
-              positiveClick: () async {
-                var newConnectivityResult =
-                    await cp.Connectivity().checkConnectivity();
-                if (!newConnectivityResult.contains(cp.ConnectivityResult.none)) {
-                  Navigator.pop(context);
-                  // await initConfig(); // Assuming initConfig is handled elsewhere now
-                  _loadWidget(); // Retry loading
-                }
-              },
-              descriptions: languages.connectionMsg,
-              positiveButton: languages.retry,
-            );
-          },
-          barrierDismissible: false);
-    }
-  }
-
-  Future<void> setToken() async {
     try {
-      String? token = await FirebaseMessaging.instance.getToken();
-      await firebaseAuth(); // Ensure Firebase Auth is ready
-      setFireToken(token ?? "");
-    } catch (e) {
-      logd(tag, "Error setting token or Firebase Auth: $e");
-      // Handle error appropriately, maybe retry or show a message
-    }
-  }
+      var response = await _repo.getAndUpdateSettings(
+        etaDeliveryTime: deliveryTime?.value ?? 0,
+        serviceRadius: storeDeliveryRadius?.value ?? 0,
+        orderMinAmount: getDoubleFromString(orderMinAmount.text),
+        packagingCharges: getDoubleFromString(packageCharge.text),
+        isUpdate: isUpdate ? 1 : 0, // Pass 1 for update, 0 for get
+        storeTiming: storeTiming,
+      );
 
-  checkServiceStatusCall() async {
-    // Check if the BehaviorSubject is already closed before adding events
-    if (checkServiceStatus.isClosed) return;
-    checkServiceStatus.add(ApiResponse.loading());
+      if (!state.mounted) return; // This check still works perfectly
 
-    var connectivityResult = await cp.Connectivity().checkConnectivity();
-    if (!connectivityResult.contains(cp.ConnectivityResult.none)) {
-      try {
-        // Assume _repo.checkServiceStatus() returns Map<String, dynamic>
-        Map<String, dynamic> rawResponse = await _repo.checkServiceStatus();
-        LoginPojo response = LoginPojo.fromJson(rawResponse);
-
-        if (!state.mounted) return;
-
-        var apiMsg = getApiMsg(context, response.message, response.messageCode);
-
-        // Pass isLogout=false as we handle navigation here
-        if (isApiStatus(context, response.status, apiMsg, false)) {
-          setDataInPref(response); // Assuming this saves necessary data
-          checkServiceStatus.add(ApiResponse.completed(true)); // Indicate success
-
-          // Navigate based on verified status and service status
-          if (response.storeVerified == 1) {
-             // 0:pending, 1:approved, 2:blocked, 3:rejected, 4:not registered
-            switch (response.serviceStatus) {
-              case 0: // Pending
-              case 4: // Not registered - treat as pending?
-                navigateToPending(context);
-                break;
-              case 1: // Approved
-                openScreenWithClearPrevious(context, const HomeScreen());
-                break;
-              case 2: // Blocked
-                navigationPage(context, PendingScreen(data: languages.blockMessage));
-                break;
-              case 3: // Rejected
-                navigationPage(context, PendingScreen(data: languages.rejectMessage));
-                break;
-              default: // Unknown status
-                 navigationPage(context, PendingScreen(data: response.serviceMessage.isNotEmpty ? response.serviceMessage : languages.apiErrorUnexpectedErrorMsg));
-            }
-          } else { // Not verified
-             // Maybe go to OTP screen instead? Depends on your flow.
-             // If LanguageCurrencyScreen handles unverified users, this is okay.
-             openScreenWithReplacePrevious(context, const LanguageCurrencyScreen());
-          }
-        } else { // API status indicates an issue handled by isApiStatus (e.g., blocked, logout)
-          checkServiceStatus.add(ApiResponse.error(apiMsg)); // Pass error message
-          // isApiStatus might navigate or show dialogs, snackbar might be redundant
-          // if (response.status != 3) openSimpleSnackbar(apiMsg);
+      if (isUpdate) {
+        // Handle update response
+        BaseModel baseResponse = BaseModel.fromJson(response);
+        var apiMsg = getApiMsg(context, baseResponse.message, baseResponse.messageCode);
+        if (isApiStatus(context, baseResponse.status, apiMsg)) {
+          updateSubject.add(ApiResponse.completed(baseResponse));
+          openSimpleSnackbar(languages.settingUpdateMsg);
+        } else {
+          updateSubject.add(ApiResponse.error(apiMsg));
+          if (baseResponse.status != 3) openSimpleSnackbar(apiMsg);
         }
-      } catch (e) {
-        if (!state.mounted) return;
-        String errorMessage = e is Exception ? e.toString() : languages.apiErrorUnexpectedErrorMsg;
-        checkServiceStatus.add(ApiResponse.error(errorMessage));
-        openSimpleSnackbar(errorMessage);
-        logd(tag, "Error in checkServiceStatusCall: $e");
-      }
-    } else { // No internet
-      if (!state.mounted) return;
-      // Don't use Future.delayed if you want immediate feedback
-      checkServiceStatus.add(ApiResponse.error(languages.noInternet));
-      openSimpleSnackbar(languages.noInternet);
-    }
-  }
-
-  checkAppVersionApi() async {
-     if (_subject.isClosed) return;
-    _subject.add(ApiResponse.loading());
-
-    var connectivityResult = await cp.Connectivity().checkConnectivity();
-    if (!connectivityResult.contains(cp.ConnectivityResult.none)) {
-      try {
-        // Assume repo returns Map<String, dynamic>
-        Map<String, dynamic> rawResponse = await _repo.appVersionCheckApi();
-        AppVersionCheckPojo response = AppVersionCheckPojo.fromJson(rawResponse);
-
-        if (!state.mounted) return;
-
-        var apiMsg = getApiMsg(context, response.message ?? languages.apiErrorUnexpectedErrorMsg, response.messageCode ?? 0);
-
-        // Use null checks and default values
-        if (isApiStatus(context, response.status ?? 0, apiMsg)) {
-          _subject.add(ApiResponse.completed(response));
-          // Proceed to check update dialog
-           await openForceFullyUpdateDialog(
-              response.appVersion ?? "0", response.isForcefullyUpdate ?? 0);
-        } else { // API status indicates an issue
-          _subject.add(ApiResponse.error(apiMsg));
-           // If isApiStatus handles navigation/dialogs, this might be okay.
-           // Otherwise, decide the next step (e.g., retry, show error screen)
-           // For now, let's assume isApiStatus handles critical errors, and we proceed if it returns false but doesn't navigate.
-           await _proceedAfterVersionCheck(); // Decide next step even if version check had non-critical issues
-        }
-      } catch (e) {
-        if (!state.mounted) return;
-         String errorMessage = e is Exception ? e.toString() : languages.apiErrorUnexpectedErrorMsg;
-        _subject.add(ApiResponse.error(errorMessage));
-        openSimpleSnackbar(errorMessage);
-        logd(tag, "Error in checkAppVersionApi: $e");
-        // Decide what happens on error (e.g., retry, show error message, proceed cautiously)
-        await _proceedAfterVersionCheck(); // Or maybe show an error screen
-      }
-    } else { // No internet
-      if (!state.mounted) return;
-      _subject.add(ApiResponse.error(languages.noInternet));
-      openSimpleSnackbar(languages.noInternet);
-       // Decide what happens on error (e.g., retry button) - _loadWidget handles this dialog part
-    }
-  }
-
-  Future<void> openForceFullyUpdateDialog(String serverVersion, int forcefullyUpdate) async {
-    String currentVersion = "0", packageName = "";
-    if (!kIsWeb) {
-      try {
-        PackageInfo packageInfo = await PackageInfo.fromPlatform();
-        currentVersion = packageInfo.version;
-        packageName = packageInfo.packageName;
-      } catch (e) {
-         logd(tag, "Error getting package info: $e");
-         // Handle error - maybe proceed without checking version?
-         await _proceedAfterVersionCheck();
-         return;
-      }
-    } else {
-        // Web doesn't have forced updates like mobile stores typically
-        await _proceedAfterVersionCheck();
-        return;
-    }
-
-
-    // Simple version comparison (assumes versions like "1.0.0", "1.2.3")
-    // For more complex versions (e.g., "1.0.0-beta"), use the `version` package
-    bool needsUpdate = _isVersionLower(currentVersion, serverVersion);
-
-    if (needsUpdate && forcefullyUpdate == 1) {
-      if (!state.mounted) return;
-      // Show dialog and wait for it to close
-      await showDialog(
-          context: context,
-          barrierDismissible: false, // Prevent dismissing by tapping outside
-          builder: (BuildContext context) {
-            return SimpleDialogUtil( // Assuming SimpleDialogUtil is updated or similar
-              title: languages.newUpdateAvailable,
-              message: languages.newUpdateMsg,
-              positiveButtonTxt: languages.update,
-              negativeButtonTxt: null, // No cancel button for forced update
-              onPositivePress: () {
-                String url = "";
-                if (Platform.isAndroid) {
-                  url = "https://play.google.com/store/apps/details?id=$packageName";
-                } else if (Platform.isIOS){ // Check for iOS specifically
-                  url = "https://apps.apple.com/app/id$appleId"; // Assuming appleId is defined globally
-                }
-                if (url.isNotEmpty) {
-                   openUrl(url); // Assuming openUrl handles launching store URLs
-                }
-                // Don't pop here, keep the dialog open until update starts or fails
-              },
-            );
-          });
-        // After the dialog, the app state might be stuck until updated.
-        // Or, you might want to exit the app if the user somehow closes it. SystemNavigator.pop();
-    } else {
-       // No forced update needed or version is okay, proceed
-      await _proceedAfterVersionCheck();
-    }
-  }
-
-  // Helper function to compare simple versions (e.g., "1.0.0", "1.2.3")
-  bool _isVersionLower(String currentVersion, String serverVersion) {
-     try {
-       List<int> currentParts = currentVersion.split('.').map(int.parse).toList();
-       List<int> serverParts = serverVersion.split('.').map(int.parse).toList();
-
-       int length = currentParts.length > serverParts.length ? currentParts.length : serverParts.length;
-
-       for (int i = 0; i < length; i++) {
-         int current = (i < currentParts.length) ? currentParts[i] : 0;
-         int server = (i < serverParts.length) ? serverParts[i] : 0;
-         if (current < server) return true;
-         if (current > server) return false;
-       }
-       return false; // Versions are equal
-     } catch (e) {
-       logd(tag, "Error comparing versions: $e");
-       return false; // Treat error as versions are okay or equal
-     }
-  }
-
-
-  // Decide what to do after the version check (if no forced update)
-  Future<void> _proceedAfterVersionCheck() async {
-     // Check login status AFTER version check is complete and okay
-      if (prefGetInt(prefStoreId) > 0) {
-        await checkServiceStatusCall(); // Check their service status if logged in
       } else {
-        // Not logged in, wait a bit then go to Language/Currency or Login
-        await Future.delayed(const Duration(seconds: 2)); // Shorter delay might be okay
-        if (!state.mounted) return;
-        openScreenWithReplacePrevious(context, const LanguageCurrencyScreen());
+        // Handle fetch response
+        SettingModel settingResponse = SettingModel.fromJson(response);
+        var apiMsg = getApiMsg(context, settingResponse.message, settingResponse.messageCode);
+        if (isApiStatus(context, settingResponse.status, apiMsg)) {
+          settingSubject.add(ApiResponse.completed(settingResponse));
+          // Populate fields with fetched data
+          _populateFields(settingResponse);
+        } else {
+          settingSubject.add(ApiResponse.error(apiMsg));
+        }
       }
+    } catch (e) {
+      if (!state.mounted) return; // This check still works perfectly
+      String errorMessage = e is Exception ? e.toString() : languages.apiErrorUnexpectedErrorMsg;
+      logd(tag, "Error: $e");
+      subject.add(ApiResponse.error(errorMessage));
+      if (isUpdate) openSimpleSnackbar(errorMessage);
+    }
   }
 
+  // Helper to populate controllers and dropdowns from fetched data
+  void _populateFields(SettingModel data) {
+    orderMinAmount.text = data.orderMinAmount.toStringAsFixed(2);
+    packageCharge.text = data.packagingCharges.toStringAsFixed(2);
+
+    // Populate dropdown lists (dummy data, replace with real logic)
+    edtList = [
+      KeyValuePair("10 ${languages.min}", 10),
+      KeyValuePair("20 ${languages.min}", 20),
+      KeyValuePair("30 ${languages.min}", 30),
+      KeyValuePair("40 ${languages.min}", 40),
+    ];
+    radiusList = [
+      KeyValuePair("1 ${languages.km}", 1),
+      KeyValuePair("3 ${languages.km}", 3),
+      KeyValuePair("5 ${languages.km}", 5),
+      KeyValuePair("10 ${languages.km}", 10),
+    ];
+
+    // Set selected values
+    try {
+      deliveryTime = edtList.firstWhere((item) => item.value == data.etaDeliveryTime,
+          orElse: () => edtList.first);
+    } catch (e) {
+      deliveryTime = null;
+    }
+
+    try {
+      storeDeliveryRadius = radiusList.firstWhere((item) => item.value == data.serviceRadius,
+          orElse: () => radiusList.first);
+    } catch (e) {
+      storeDeliveryRadius = null;
+    }
+    
+    // Populate store timings
+    storeTimingSubject.add(data.storeTimings);
+  }
+
+  // Show time picker
+  Future<void> selectTime(
+    BuildContext context,
+    Function(TimeOfDay) onTimeSelected, {
+    int hour = 0,
+    int minute = 0,
+  }) async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: hour, minute: minute),
+    );
+    if (picked != null) {
+      onTimeSelected(picked);
+    }
+  }
 
   @override
   void dispose() {
-    // Close BehaviorSubjects to prevent memory leaks
-    checkServiceStatus.close();
-    _subject.close();
-    super.dispose(); // If Bloc has a superclass with dispose
+    settingSubject.close();
+    updateSubject.close();
+    storeTimingSubject.close();
+    orderMinAmount.dispose();
+    packageCharge.dispose();
   }
 }

@@ -120,7 +120,7 @@ class LanguageCurrencyBloc implements Bloc { // Changed from 'extends Bloc'
           } else {
              // Handle case where currency list is empty - maybe show error or default?
              // For now, add error to stream
-             _languageAndCurrencySubject.sink.add(ApiResponse.error(languages.noCurrenciesAvailable));
+             _languageAndCurrencySubject.sink.add(ApiResponse.error('No currencies available'));
              return; // Stop further processing
           }
           // Add completed response to the main subject

@@ -38,7 +38,7 @@ class ProductBloc extends Bloc {
 
   getProductList() async {
     if (productListSubject.isClosed) return;
-    productListSubject.sink.add(ApiResponse.loading(languages.fetchingDetails)); // Use localized string
+    productListSubject.sink.add(ApiResponse.loading('fetching details...')); // Use localized string
     try {
       ProductResponse response = ProductResponse.fromJson(await _repo.getProductList());
       if (!state.mounted) return; // Check mounted after await
@@ -49,7 +49,7 @@ class ProductBloc extends Bloc {
          if (response.productList.isNotEmpty) {
             productListSubject.sink.add(ApiResponse.completed(response));
          } else {
-            productListSubject.sink.add(ApiResponse.error(languages.emptyData)); // Specific empty message
+            productListSubject.sink.add(ApiResponse.error('No data available')); // Specific empty message
          }
       } else {
          // isApiStatus might handle UI, update stream state

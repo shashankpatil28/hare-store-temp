@@ -66,7 +66,7 @@ class SignUpBloc implements Bloc { // Changed from 'with Bloc'
     // Ensure form is validated before proceeding
     if (!(formKey.currentState?.validate() ?? false) || !(acceptTermsController.valueOrNull ?? false)) {
         if(!(acceptTermsController.valueOrNull ?? false)) {
-           openSimpleSnackbar(languages.acceptTermCondition); // Provide specific feedback
+           openSimpleSnackbar(languages.termAndConditionUse); // Provide specific feedback
         }
       return; // Stop if form is invalid or terms not accepted
     }

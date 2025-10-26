@@ -110,7 +110,7 @@ class HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               title: Text(
-                languages.liveOrders,
+                'Live Orders',
                 style: toolbarStyle(),
               ),
             ),
