@@ -73,7 +73,8 @@ class _PendingScreenState extends State<PendingScreen> {
                 stream: blockMain.logoutSubject,
                 builder: (context, snapshot) {
                   return CustomRoundedButton(context, languages.logout, () {
-                    blockMain.logoutCall(context);
+                    // MODIFIED: Removed 'context' argument
+                    blockMain.logoutCall();
                   },
                       minHeight: commonBtnHeight,
                       fontWeight: FontWeight.w700,

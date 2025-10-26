@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:rxdart/rxdart.dart';
 import '../../network/api_response.dart';
+import '../../network/base_dl.dart'; // MODIFIED: Added this import
 import '../../utils/bloc.dart';
 import '../../utils/common_util.dart';
 import 'setting_dl.dart';

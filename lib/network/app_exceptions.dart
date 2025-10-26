@@ -12,8 +12,9 @@ class AppException implements Exception {
   }
 }
 
-class Exception extends AppException {
-  Exception([String? message]) : super(message, "Error During Communication: ");
+// MODIFIED: Renamed 'Exception' to 'FetchDataException' to avoid conflict with Dart core 'Exception'
+class FetchDataException extends AppException {
+  FetchDataException([String? message]) : super(message, "Error During Communication: ");
 }
 
 class BadRequestException extends AppException {

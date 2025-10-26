@@ -56,7 +56,6 @@ class OrderHistoryScreenState extends State<OrderHistoryScreen> {
                     return OrderHistoryFilterBs(
                       defaultSelected: _bloc!.filterSelected,
                       onSelected: (filter) {
-                        // MODIFIED: Simplified to use the BLoC's changeFilter method
                         _bloc?.changeFilter(filter);
                       },
                       filterList: _bloc!.list,
@@ -122,7 +121,8 @@ class OrderHistoryScreenState extends State<OrderHistoryScreen> {
                     case Status.error:
                       return Center(
                         child: Text(
-                            snapshot.data?.message ?? languages.apiErrorUnexpectedErrorMsg),
+                            snapshot.data?.message ??
+                                languages.apiErrorUnexpectedErrorMsg),
                       );
                   }
                 }
@@ -136,40 +136,48 @@ class OrderHistoryScreenState extends State<OrderHistoryScreen> {
     );
   }
 
-  Widget _buildListWithHeader(BuildContext context, OrderHistoryResponse headerData) {
+  Widget _buildListWithHeader(
+      BuildContext context, OrderHistoryResponse headerData) {
     return CustomScrollView(
       slivers: [
         SliverToBoxAdapter(child: _buildHeader(headerData)),
-        // MODIFIED: Removed explicit generic types from constructor to fix compiler error
-        PagedSliverList.separated(
-          pagingController: _bloc!.pagingController,
-          separatorBuilder: (context, index) => Divider(
-            height: deviceHeight * 0.005,
-            thickness: 1,
-            color: colorMainView,
-          ),
-          builderDelegate: PagedChildBuilderDelegate<OrderHistoryItem>(
-            itemBuilder: (context, item, position) {
-              return _buildListItem(item);
-            },
-            firstPageErrorIndicatorBuilder: (context) => Center(
-                child:
-                    Text(_bloc?.pagingController.error ?? languages.apiErrorUnexpectedErrorMsg)),
-            newPageErrorIndicatorBuilder: (context) => Center(
-                child:
-                    Text(_bloc?.pagingController.error ?? languages.apiErrorUnexpectedErrorMsg)),
-            firstPageProgressIndicatorBuilder: (context) =>
-                const OrderHistoryShimmer(),
-            newPageProgressIndicatorBuilder: (context) =>
-                const Center(child: CircularProgressIndicator()),
-            noItemsFoundIndicatorBuilder: (context) => NoRecordFound(
-              rippleIconData: CustomIcons.orderHistoryEmpty,
-              message: languages.emptyData,
-              withRipple: true,
-              rippleImgSize: deviceHeight * 0.1,
-            ),
-            noMoreItemsIndicatorBuilder: (context) => const SizedBox.shrink(),
-          ),
+        // NEW: Use PagingListener to connect controller -> sliver (v5.x API)
+        // PagingListener gives us the current PagingState and a fetchNextPage callback
+        PagingListener<int, OrderHistoryItem>(
+          controller: _bloc!.pagingController,
+          builder: (context, pagingState, fetchNextPage) {
+            return PagedSliverList.separated(
+              state: pagingState,
+              fetchNextPage: fetchNextPage,
+              separatorBuilder: (context, index) => Divider(
+                height: deviceHeight * 0.005,
+                thickness: 1,
+                color: colorMainView,
+              ),
+              builderDelegate: PagedChildBuilderDelegate<OrderHistoryItem>(
+                itemBuilder: (context, item, position) {
+                  return _buildListItem(item);
+                },
+                firstPageErrorIndicatorBuilder: (context) => Center(
+                    child: Text(_bloc!.pagingController.value.error.toString() ??
+                        languages.apiErrorUnexpectedErrorMsg)),
+                newPageErrorIndicatorBuilder: (context) => Center(
+                    child: Text(_bloc!.pagingController.value.error.toString() ??
+                        languages.apiErrorUnexpectedErrorMsg)),
+                firstPageProgressIndicatorBuilder: (context) =>
+                    const OrderHistoryShimmer(),
+                newPageProgressIndicatorBuilder: (context) =>
+                    const Center(child: CircularProgressIndicator()),
+                noItemsFoundIndicatorBuilder: (context) => NoRecordFound(
+                  rippleIconData: CustomIcons.orderHistoryEmpty,
+                  message: languages.emptyData,
+                  withRipple: true,
+                  rippleImgSize: deviceHeight * 0.1,
+                ),
+                noMoreItemsIndicatorBuilder: (context) => const SizedBox.shrink(),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -201,7 +209,7 @@ class OrderHistoryScreenState extends State<OrderHistoryScreen> {
                           Row(
                             children: [
                               Icon(
-                                CustomIcons.payment,
+                                CustomIcons.pendingPayment,
                                 size: deviceAverageSize * 0.03,
                                 color: textColorWithOpacity,
                               ),
@@ -253,7 +261,7 @@ class OrderHistoryScreenState extends State<OrderHistoryScreen> {
                           Row(
                             children: [
                               Icon(
-                                CustomIcons.orderComplete,
+                                CustomIcons.completedOrders,
                                 size: deviceAverageSize * 0.03,
                                 color: textColorWithOpacity,
                               ),
@@ -303,7 +311,7 @@ class OrderHistoryScreenState extends State<OrderHistoryScreen> {
                       child: Row(
                         children: [
                           Icon(
-                            CustomIcons.pendingOrder,
+                            CustomIcons.pendingOrders,
                             size: deviceAverageSize * 0.03,
                             color: textColorWithOpacity,
                           ),
@@ -347,7 +355,7 @@ class OrderHistoryScreenState extends State<OrderHistoryScreen> {
                       child: Row(
                         children: [
                           Icon(
-                            CustomIcons.cancelled,
+                            CustomIcons.cancelledOrders,
                             size: deviceAverageSize * 0.03,
                             color: textColorWithOpacity,
                           ),
