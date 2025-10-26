@@ -142,16 +142,16 @@ class WalletBloc implements Bloc { // Changed from 'extends Bloc'
           _subjectAddAmount.sink.add(ApiResponse.completed(response)); // Update stream early
 
           // Handle payment redirection if URL is provided
-          if (response.redirectUrl.isNotEmpty) {
+          // Use response.redirectUrl ?? "" for safety
+          if ((response.redirectUrl ?? "").isNotEmpty) {
             // Navigate to WebView or external browser
-            await Navigator.push(
+              await Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (context) => PaymentScreenWebView(
-                  // MODIFIED: Changed parameter name to 'paymentUrl'
-                  paymentUrl: response.redirectUrl,
-                  successUrl: response.successUrl,
-                  failedUrl: response.failedUrl,
+                  paymentUrl: response.redirectUrl!, // Use ! because we checked isNotEmpty
+                  successUrl: response.successUrl ?? "", // Provide default empty string
+                  failUrl: response.failedUrl ?? "", // Pass failed URL from response (default empty)
                 ),
               ),
             ).then((paymentSuccess) {
