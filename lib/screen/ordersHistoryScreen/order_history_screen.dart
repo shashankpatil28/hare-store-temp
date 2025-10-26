@@ -56,9 +56,8 @@ class OrderHistoryScreenState extends State<OrderHistoryScreen> {
                     return OrderHistoryFilterBs(
                       defaultSelected: _bloc!.filterSelected,
                       onSelected: (filter) {
-                        _bloc?.filterSelected = filter;
-                        _bloc?.historyFilterModel.add(filter);
-                        _bloc?.getOrderHistory(1, filter.filterType);
+                        // MODIFIED: Simplified to use the BLoC's changeFilter method
+                        _bloc?.changeFilter(filter);
                       },
                       filterList: _bloc!.list,
                     );
@@ -141,7 +140,8 @@ class OrderHistoryScreenState extends State<OrderHistoryScreen> {
     return CustomScrollView(
       slivers: [
         SliverToBoxAdapter(child: _buildHeader(headerData)),
-        PagedSliverList<int, OrderHistoryItem>.separated(
+        // MODIFIED: Removed explicit generic types from constructor to fix compiler error
+        PagedSliverList.separated(
           pagingController: _bloc!.pagingController,
           separatorBuilder: (context, index) => Divider(
             height: deviceHeight * 0.005,

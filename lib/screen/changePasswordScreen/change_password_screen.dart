@@ -121,11 +121,13 @@ class ChangePasswordScreenState extends State<ChangePasswordScreen> {
             child: Align(
               alignment: Alignment.bottomCenter,
               child: StreamBuilder<bool>(
-                stream: _changePasswordBloc.submitValid,
+                // MODIFIED: Used 'submitValidStream' getter
+                stream: _changePasswordBloc.submitValidStream,
                 builder: (context, snapEnable) {
                   bool isEnable = snapEnable.data ?? false;
                   return StreamBuilder<ApiResponse<BaseModel>>(
-                    stream: _changePasswordBloc.subject,
+                    // MODIFIED: Used 'updateStream' getter
+                    stream: _changePasswordBloc.updateStream,
                     builder: (context, snapLoading) {
                       var isLoading = snapLoading.hasData &&
                           snapLoading.data!.status == Status.loading;

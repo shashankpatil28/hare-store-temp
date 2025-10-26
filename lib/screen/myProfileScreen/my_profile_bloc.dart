@@ -84,7 +84,7 @@ class MyProfileBloc implements Bloc {
           ChatConstant.userType: chatWithTypeStore, // Assuming this is for store owner
           // Add other relevant fields like FcmToken if needed
           ChatConstant.fcmToken: getFireToken(),
-          ChatConstant.userDateTime: DateTime.now().toIso8601String(), // Optional: timestamp
+          ChatConstant.userDateTime: DateTime.now().toIso8101String(), // Optional: timestamp
       };
       try {
           // Use set() to create or overwrite the user node with the correct ID
@@ -114,12 +114,8 @@ class MyProfileBloc implements Bloc {
 
 
   updateProfileCall() async {
-    // Validate form first
-     if (!(/*formKey from widget?*/ (state.context.findAncestorStateOfType<FormState>()?.validate() ?? false))) {
-        logd(tag, "Form validation failed in updateProfileCall");
-       return;
-     }
-     FocusManager.instance.primaryFocus?.unfocus();
+    // MODIFIED: Removed form validation. The screen handles validation before calling this.
+    FocusManager.instance.primaryFocus?.unfocus();
 
     if (_updateProfile.isClosed) return;
 

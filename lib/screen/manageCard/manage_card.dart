@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../commonView/no_record_found.dart';
 import '../../commonView/my_widgets.dart';
+import '../../dialog/simple_dialog_util.dart'; // Added missing import
 import '../../network/api_response.dart';
 import '../../network/base_dl.dart';
 import '../../utils/common_util.dart';
@@ -156,7 +157,8 @@ class _ManageCardState extends State<ManageCard> {
 
   cardList() {
     return StreamBuilder<ApiResponse<CardModel>>(
-      stream: _bloc.subject,
+      // MODIFIED: Used 'cardListStream' getter
+      stream: _bloc.cardListStream,
       builder: (context, snap) {
         var isLoading = snap.hasData && snap.data?.status == Status.loading;
         var isError = snap.hasData && snap.data?.status == Status.error;
@@ -186,7 +188,8 @@ class _ManageCardState extends State<ManageCard> {
                               barrierDismissible: false,
                               builder: (BuildContext context) {
                                 return StreamBuilder<ApiResponse<BaseModel>>(
-                                  stream: _bloc.subjectDeleteCard,
+                                  // MODIFIED: Used 'deleteCardStream' getter
+                                  stream: _bloc.deleteCardStream,
                                   builder: (context, snapLoading) {
                                     var isLoading = snapLoading.hasData && snapLoading.data?.status == Status.loading;
                                     return SimpleDialogUtil(

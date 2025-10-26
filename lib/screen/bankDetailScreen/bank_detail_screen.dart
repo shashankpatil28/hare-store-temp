@@ -38,7 +38,7 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    var formKey = GlobalKey<FormState>();
+    // MODIFIED: Removed local formKey. The BLoC's key will be used.
 
     return Scaffold(
       backgroundColor: colorWhite,
@@ -47,7 +47,8 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
         title: Text(languages.bankDetail),
       ),
       body: StreamBuilder<ApiResponse>(
-          stream: _bloc!.subject,
+          // MODIFIED: Used 'bankDetailStream' getter
+          stream: _bloc!.bankDetailStream,
           builder: (context, snapshot) {
             var isLoading = (snapshot.data?.status ?? Status.completed) == Status.loading;
             if (isLoading) {
@@ -57,7 +58,8 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
               slivers: [
                 SliverToBoxAdapter(
                   child: Form(
-                    key: formKey,
+                    // MODIFIED: Used the BLoC's formKey
+                    key: _bloc!.formKey,
                     child: Container(
                       margin: EdgeInsets.all(deviceAverageSize * 0.02),
                       child: Column(
@@ -148,13 +150,15 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
                   child: Container(
                     alignment: Alignment.bottomCenter,
                     child: StreamBuilder<ApiResponse>(
-                      stream: _bloc!.updateSubject,
+                      // MODIFIED: Used 'updateStream' getter
+                      stream: _bloc!.updateStream,
                       builder: (context, snapshot) {
                         return CustomRoundedButton(
                           context,
                           languages.submit,
                           () {
-                            if (formKey.currentState!.validate()) {
+                            // MODIFIED: Validated using the BLoC's formKey
+                            if (_bloc!.formKey.currentState!.validate()) {
                               _bloc?.callUpdateBankDetailApi();
                             }
                           },

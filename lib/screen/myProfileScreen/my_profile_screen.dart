@@ -16,6 +16,7 @@ import '../../network/base_dl.dart';
 import '../../utils/common_util.dart';
 import '../../utils/custom_icons.dart';
 import 'my_profile_bloc.dart';
+import 'my_profile_dl.dart'; // Added missing import
 
 class MyProfileScreen extends StatefulWidget {
   const MyProfileScreen({super.key});
@@ -81,8 +82,9 @@ class MyProfileScreenState extends State<MyProfileScreen> {
                           builder: (context, snapshotPref) {
                             return Column(
                               children: [
-                                StreamBuilder<File>(
-                                    stream: bloc!.profileFile,
+                                StreamBuilder<File?>( // MODIFIED: Added '?' to File
+                                    // MODIFIED: Used 'profileFileStream' getter
+                                    stream: bloc!.profileFileStream,
                                     builder: (context, snapshot) {
                                       ImageProvider file;
                                       if (snapshot.hasData && snapshot.data != null) {
@@ -134,7 +136,8 @@ class MyProfileScreenState extends State<MyProfileScreen> {
                     margin: EdgeInsets.symmetric(vertical: deviceHeight * 0.012, horizontal: deviceWidth * 0.035),
                     child: TextFormFieldCustom(
                       textInputAction: TextInputAction.next,
-                      controller: bloc!.fullName,
+                      // MODIFIED: Used 'fullNameController' getter
+                      controller: bloc!.fullNameController,
                       suffix: suffix,
                       style: bodyText(),
                       setError: true,
@@ -143,9 +146,10 @@ class MyProfileScreenState extends State<MyProfileScreen> {
                       keyboardType: TextInputType.name,
                       validator: (value) {
                         bloc!.buttonHide();
-                        if (value.isEmpty) {
+                        if (value == null || value.isEmpty) { // Added null check
                           return languages.enterFullName;
                         }
+                        // MODIFIED: Return "" on success
                         return "";
                       },
                     ),
@@ -165,7 +169,8 @@ class MyProfileScreenState extends State<MyProfileScreen> {
                     margin: EdgeInsets.symmetric(vertical: deviceHeight * 0.012, horizontal: deviceWidth * 0.035),
                     child: TextFormFieldCustom(
                       textInputAction: TextInputAction.next,
-                      controller: bloc!.email,
+                      // MODIFIED: Used 'emailController' getter
+                      controller: bloc!.emailController,
                       suffix: suffix,
                       keyboardType: TextInputType.emailAddress,
                       useLabelWithBorder: true,
@@ -174,13 +179,14 @@ class MyProfileScreenState extends State<MyProfileScreen> {
                       style: bodyText(),
                       validator: (value) {
                         bloc!.buttonHide();
-                        if (value.isEmpty) {
+                        if (value == null || value.isEmpty) { // Added null check
                           return languages.enterEmailAddress;
                         }
                         var hasMatchEmail = emailRegExp(value);
 
                         if (!hasMatchEmail) return languages.invalidEmailAddress;
 
+                        // MODIFIED: Return "" on success
                         return "";
                       },
                     ),
@@ -189,7 +195,8 @@ class MyProfileScreenState extends State<MyProfileScreen> {
                     margin: EdgeInsets.symmetric(vertical: deviceHeight * 0.012, horizontal: deviceWidth * 0.035),
                     child: TextFormFieldCustom(
                       textInputAction: TextInputAction.done,
-                      controller: bloc!.contactNumber,
+                      // MODIFIED: Used 'contactNumberController' getter
+                      controller: bloc!.contactNumberController,
                       readOnly: false,
                       useLabelWithBorder: true,
                       decoration: InputDecoration(labelText: languages.contactNumber),
@@ -216,9 +223,10 @@ class MyProfileScreenState extends State<MyProfileScreen> {
                       setError: true,
                       validator: (value) {
                         bloc!.buttonHide();
-                        if (value.isEmpty) {
+                        if (value == null || value.isEmpty) { // Added null check
                           return languages.enterContactNumber;
                         }
+                        // MODIFIED: Return "" on success
                         return "";
                       },
                       style: bodyText(),
@@ -259,10 +267,12 @@ class MyProfileScreenState extends State<MyProfileScreen> {
                     Expanded(
                       flex: 1,
                       child: StreamBuilder<ApiResponse<bool>>(
-                        stream: bloc!.updateProfile,
+                        // MODIFIED: Used 'updateProfileStream' getter
+                        stream: bloc!.updateProfileStream,
                         builder: (context, snapshot) {
                           return StreamBuilder<bool>(
-                              stream: bloc!.updateEnable,
+                              // MODIFIED: Used 'updateEnableStream' getter
+                              stream: bloc!.updateEnableStream,
                               builder: (context, updateEnable) {
                                 return CustomRoundedButton(
                                   context,
@@ -308,7 +318,8 @@ class Gender extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<GenderEnum>(
-        stream: bloc.genderEnum,
+        // MODIFIED: Used 'genderEnumStream' getter
+        stream: bloc.genderEnumStream,
         builder: (context, snapshot) {
           GenderEnum gender = snapshot.hasData && snapshot.data != null ? snapshot.data! : GenderEnum.male;
 
